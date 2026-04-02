@@ -190,7 +190,7 @@ export default function PaperStock() {
         <div className="stock-container animate-fade-in">
             {/* Header matching other pages */}
             <header className="dashboard-header glass-panel">
-                <div className="header-content container">
+                <div className="header-content container mx-auto px-4">
                     <div className="brand">
                         <span className="logo-icon">✨</span>
                         <span className="brand-name">WorkTracker</span>
@@ -215,7 +215,7 @@ export default function PaperStock() {
                 </div>
             </header>
 
-            <main className="container stock-main">
+            <main className="container mx-auto px-4 stock-main">
                 <div className="page-title glass-panel delay-100 animate-fade-in">
                     <h1>จัดการสต็อคกระดาษ A3</h1>
                     <p className="text-muted mt-2">บันทึกรับเข้าและตรวจเช็คประวัติการเบิกจ่ายกระดาษทั้งหมด</p>

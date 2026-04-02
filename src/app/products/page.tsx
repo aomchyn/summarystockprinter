@@ -145,7 +145,7 @@ export default function Products() {
     <div className="dashboard-container animate-fade-in">
       {/* Header */}
       <header className="dashboard-header glass-panel">
-        <div className="header-content container">
+        <div className="header-content container mx-auto px-4">
           <div className="brand">
             <span className="logo-icon">📦</span>
             <span className="brand-name">WorkTracker</span>
@@ -170,7 +170,7 @@ export default function Products() {
         </div>
       </header>
 
-      <main className="container dashboard-main">
+      <main className="container mx-auto px-4 dashboard-main">
         {/* New Product Form */}
         <section className="form-section glass-panel delay-100 animate-fade-in">
           <h2>เพิ่มสินค้าใหม่</h2>

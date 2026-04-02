@@ -302,7 +302,7 @@ export default function PrintOrders() {
     <div className="dashboard-container animate-fade-in">
       {/* Header */}
       <header className="dashboard-header glass-panel">
-        <div className="header-content container">
+        <div className="header-content container mx-auto px-4">
           <div className="brand">
             <span className="logo-icon">🖨️</span>
             <span className="brand-name">WorkTracker</span>
@@ -325,7 +325,7 @@ export default function PrintOrders() {
         </div>
       </header>
 
-      <main className="container dashboard-main">
+      <main className="container mx-auto px-4 dashboard-main">
         {/* Print Order Form */}
         <section className="form-section glass-panel delay-100 animate-fade-in">
           <h2>คำนวณการพิมพ์สินค้า</h2>
