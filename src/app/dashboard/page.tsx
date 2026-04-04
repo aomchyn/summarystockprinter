@@ -221,6 +221,31 @@ export default function Dashboard() {
     }
   };
 
+  const handleResetWeekly = async () => {
+    if (!window.confirm("⚠️ คำเตือน: คุณต้องการรีเซ็ตประวัติประจำสัปดาห์ใช่หรือไม่?\n\n- ประวัติสั่งพิมพ์ทั้งหมดจะถูกลบ\n- ประวัติสต็อคจะถูกลบและยกยอดคงเหลือปัจจุบันมาให้ใหม่\n- การดำเนินการนี้ไม่สามารถย้อนคืนได้")) {
+      return;
+    }
+
+    setIsLoadingOrders(true);
+    try {
+      const response = await fetch('/api/cron/reset-weekly', {
+        method: 'POST',
+      });
+      const result = await response.json();
+
+      if (result.success) {
+        alert("✅ รีเซ็ตประวัติประจำสัปดาห์เรียบร้อยแล้ว");
+        fetchOrders();
+      } else {
+        throw new Error(result.error || "เกิดข้อผิดพลาดไม่ทราบสาเหตุ");
+      }
+    } catch (error: any) {
+      alert("❌ รีเซ็ตไม่สำเร็จ: " + error.message);
+    } finally {
+      setIsLoadingOrders(false);
+    }
+  };
+
 
 
   const handleOpenEdit = (entry: any) => {
@@ -1312,6 +1337,16 @@ export default function Dashboard() {
               )}
             </div>
           </div>
+        </section>
+        <section className="mt-8 mb-12 flex justify-center">
+          <button 
+            onClick={handleResetWeekly}
+            className="btn btn-outline border-red-500/50 text-red-400 hover:bg-red-500/10 flex items-center gap-2"
+            disabled={isLoadingOrders}
+          >
+            <span>⚠️</span>
+            {isLoadingOrders ? "กำลังรีเซ็ต..." : "กดรีเซ็ตประจำสัปดาห์ (ลบประวัติ & ยกยอดสต็อค)"}
+          </button>
         </section>
       </main>
 
