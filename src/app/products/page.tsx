@@ -68,6 +68,13 @@ export default function Products() {
     qtyPerA3: "",
   });
 
+  const [searchQuery, setSearchQuery] = useState("");
+  const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  const [editFormData, setEditFormData] = useState({
+    name: "",
+    qtyPerA3: "",
+  });
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     router.push("/");
@@ -141,6 +148,69 @@ export default function Products() {
     }
   };
 
+  const handleEditClick = (product: Product) => {
+    setEditingProductId(product.id);
+    setEditFormData({
+      name: product.name,
+      qtyPerA3: product.qtyPerA3.toString(),
+    });
+  };
+
+  const handleCancelEdit = () => {
+    setEditingProductId(null);
+    setEditFormData({ name: "", qtyPerA3: "" });
+  };
+
+  const handleSaveEdit = async (id: string, originalName: string) => {
+    if (!editFormData.name || !editFormData.qtyPerA3) return;
+
+    // Case-insensitive duplicate check (exclude current product)
+    const inputName = editFormData.name.trim().toLowerCase();
+    const duplicate = products.find(p => p.id !== id && p.name.trim().toLowerCase() === inputName);
+    if (duplicate) {
+      alert(`มีสินค้าชื่อ "${duplicate.name}" อยู่ในระบบแล้ว กรุณาใช้ชื่ออื่น`);
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const { error } = await supabase
+        .from('products')
+        .update({
+          name: editFormData.name.trim(),
+          qty_per_a3: parseInt(editFormData.qtyPerA3, 10)
+        })
+        .eq('id', id);
+
+      if (error) throw error;
+
+      // Update local state
+      setProducts(products.map(p => 
+        p.id === id 
+          ? { ...p, name: editFormData.name.trim(), qtyPerA3: parseInt(editFormData.qtyPerA3, 10) } 
+          : p
+      ));
+      
+      logAction('UPDATE', 'products', `แก้ไขสินค้าจาก "${originalName}" เป็น "${editFormData.name.trim()}"`, { 
+        id, 
+        originalName, 
+        newName: editFormData.name.trim(),
+        newQty: editFormData.qtyPerA3 
+      });
+
+      setEditingProductId(null);
+    } catch (error: any) {
+      console.error("Error updating product:", error);
+      alert("เกิดข้อผิดพลาดในการแก้ไขสินค้า: " + error.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const filteredProducts = products.filter(p => 
+    p.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   return (
     <div className="dashboard-container animate-fade-in">
       {/* Header */}
@@ -208,10 +278,21 @@ export default function Products() {
 
         {/* Product List */}
         <section className="list-section glass-panel delay-200 animate-fade-in">
-          <div className="section-header">
-            <h2>รายการสินค้าทั้งหมด</h2>
-            <div className="total-items text-gradient-accent">
-              {products.length} รายการ
+          <div className="section-header flex-col sm:flex-row gap-4 items-start sm:items-center">
+            <div className="flex items-center gap-4">
+              <h2 className="mb-0">รายการสินค้าทั้งหมด</h2>
+              <div className="total-items text-gradient-accent">
+                {filteredProducts.length} รายการ
+              </div>
+            </div>
+            <div className="search-container w-full sm:w-auto">
+               <input
+                  type="text"
+                  className="input-field search-input"
+                  placeholder="🔍 ค้นหาสินค้า..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
             </div>
           </div>
 
@@ -224,28 +305,63 @@ export default function Products() {
 
             {isLoading && products.length === 0 ? (
               <div className="text-center py-10 text-muted col-span-full">กำลังโหลดข้อมูลสินค้า...</div>
-            ) : products.map((product) => (
+            ) : filteredProducts.map((product) => (
               <div key={product.id} className="product-card">
-                <div className="product-icon">🏷️</div>
-                <div className="product-details">
-                  <h3 className="product-name">{product.name}</h3>
-                  <div className="product-qty text-muted">
-                    <span className="qty-highlight">{product.qtyPerA3}</span> ชิ้น / A3
+                {editingProductId === product.id ? (
+                  <div className="product-edit-form w-full flex flex-col gap-3">
+                    <input
+                      type="text"
+                      className="input-field"
+                      value={editFormData.name}
+                      onChange={e => setEditFormData({...editFormData, name: e.target.value})}
+                      placeholder="ชื่อสินค้า"
+                    />
+                    <input
+                      type="number"
+                      className="input-field"
+                      value={editFormData.qtyPerA3}
+                      onChange={e => setEditFormData({...editFormData, qtyPerA3: e.target.value})}
+                      placeholder="จำนวนดวง/แผ่น"
+                    />
+                    <div className="flex gap-2">
+                      <button className="btn btn-primary flex-1 btn-sm" onClick={() => handleSaveEdit(product.id, product.name)} disabled={isLoading}>บันทึก</button>
+                      <button className="btn btn-outline flex-1 btn-sm" onClick={handleCancelEdit} disabled={isLoading}>ยกเลิก</button>
+                    </div>
                   </div>
-                </div>
-                <button
-                  onClick={() => handleDelete(product.id, product.name)}
-                  className="btn-delete"
-                  title="ลบสินค้า"
-                  disabled={isLoading}
-                >
-                  ✕
-                </button>
+                ) : (
+                  <>
+                    <div className="product-icon">🏷️</div>
+                    <div className="product-details">
+                      <h3 className="product-name">{product.name}</h3>
+                      <div className="product-qty text-muted">
+                        <span className="qty-highlight">{product.qtyPerA3}</span> ชิ้น / A3
+                      </div>
+                    </div>
+                    <div className="card-actions">
+                      <button
+                        onClick={() => handleEditClick(product)}
+                        className="btn-action edit"
+                        title="แก้ไขสินค้า"
+                        disabled={isLoading}
+                      >
+                        ✏️
+                      </button>
+                      <button
+                        onClick={() => handleDelete(product.id, product.name)}
+                        className="btn-action delete"
+                        title="ลบสินค้า"
+                        disabled={isLoading}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             ))}
-            {products.length === 0 && (
+            {filteredProducts.length === 0 && !isLoading && (
               <div className="empty-state text-muted text-center pt-8 pb-8">
-                ยังไม่มีข้อมูลสินค้าในระบบ
+                {searchQuery ? `ไม่พบสินค้าตรงกับ "${searchQuery}"` : "ยังไม่มีข้อมูลสินค้าในระบบ"}
               </div>
             )}
           </div>
@@ -451,32 +567,51 @@ export default function Products() {
           font-size: 1.1rem;
         }
 
-        .btn-delete {
+        .card-actions {
           position: absolute;
           top: 12px;
           right: 12px;
+          display: flex;
+          gap: 8px;
+          opacity: 0;
+          transition: opacity 0.2s;
+        }
+
+        .product-card:hover .card-actions {
+          opacity: 1;
+        }
+        
+        .btn-action {
           background: transparent;
           color: var(--text-muted);
           border: none;
           cursor: pointer;
-          font-size: 1rem;
-          width: 28px;
-          height: 28px;
+          font-size: 1.1rem;
+          width: 32px;
+          height: 32px;
           border-radius: 50%;
           display: flex;
           align-items: center;
           justify-content: center;
           transition: all 0.2s;
-          opacity: 0;
         }
 
-        .product-card:hover .btn-delete {
-          opacity: 1;
+        .btn-action.edit:hover {
+          background: rgba(14, 165, 233, 0.2);
+          color: var(--accent-primary);
         }
 
-        .btn-delete:hover {
+        .btn-action.delete:hover {
           background: rgba(239, 68, 68, 0.2);
           color: var(--error-color);
+        }
+
+        @media (max-width: 639px) {
+           .card-actions {
+              opacity: 1;
+              position: static;
+              flex-direction: column;
+           }
         }
         
         .empty-state {

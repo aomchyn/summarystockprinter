@@ -400,6 +400,7 @@ export default function Dashboard() {
       wasteQty: number;
       wasteA3: number;
       excessQty: number;
+      createdAt: string;
     }> = [];
 
     printOrders.forEach(group => {
@@ -426,11 +427,13 @@ export default function Dashboard() {
             wasteQty,
             wasteA3,
             excessQty: excess,
+            createdAt: entry.created_at || entry.date || '',
           });
         }
       });
     });
-    return todayEntries;
+
+    return todayEntries.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [printOrders]);
 
   // --- Weekly Summary (Per Department) ---
