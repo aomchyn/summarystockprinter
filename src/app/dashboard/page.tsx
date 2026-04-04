@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
 import { logAction } from "@/lib/auditLog";
 
 
@@ -385,6 +387,52 @@ export default function Dashboard() {
     return { byDept: summary, byPaperType, totalSheets, totalGood, totalWaste };
   }, [printOrders]);
 
+  // --- Daily Orders List (Today only) ---
+  const dailyOrders = useMemo(() => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const todayEntries: Array<{
+      id: string;
+      department: string;
+      lotName: string;
+      productName: string;
+      targetQty: number;
+      sheetsNeeded: number;
+      wasteQty: number;
+      wasteA3: number;
+      excessQty: number;
+    }> = [];
+
+    printOrders.forEach(group => {
+      group.entries.forEach((entry: any) => {
+        const entryDate = entry.date || (entry.created_at ? entry.created_at.split('T')[0] : '');
+        if (entryDate === todayStr) {
+          const ratio = entry.products?.qty_per_a3 || 1;
+          const target = entry.target_qty || 0;
+          const wasteQty = entry.waste_qty || 0;
+          const wasteA3 = entry.waste_a3 || 0;
+          const sheets = entry.sheets_needed || 0;
+          const naturalExcess = (Math.ceil(target / ratio) * ratio) - target;
+          const extraSheets = wasteQty > naturalExcess ? Math.ceil((wasteQty - naturalExcess) / ratio) : 0;
+          const productiveSheets = Math.ceil(target / ratio) + extraSheets;
+          const totalPrinted = productiveSheets * ratio;
+          const excess = Math.max(0, totalPrinted - target - wasteQty);
+          todayEntries.push({
+            id: entry.id,
+            department: entry.department || '-',
+            lotName: entry.lot_name || '-',
+            productName: group.productName,
+            targetQty: target,
+            sheetsNeeded: sheets,
+            wasteQty,
+            wasteA3,
+            excessQty: excess,
+          });
+        }
+      });
+    });
+    return todayEntries;
+  }, [printOrders]);
+
   // --- Weekly Summary (Per Department) ---
   const weeklySummary = useMemo(() => {
     const summary: Record<string, {
@@ -567,9 +615,132 @@ export default function Dashboard() {
       XLSX.utils.book_append_sheet(wb, wsDept, dept.substring(0, 31));
     });
 
-    // ── Download ──
+    // ── Generate Chart Image using Canvas ──
+    const generateChartImage = (): Promise<ArrayBuffer> => {
+      return new Promise((resolve) => {
+        const deptData = Object.entries(weeklySummary.byDept)
+          .map(([name, d]) => ({ name, sheets: d.sheetsUsed, target: d.targetQty }))
+          .sort((a, b) => b.sheets - a.sheets);
+
+        const canvas = document.createElement('canvas');
+        const W = 800, H = 500;
+        canvas.width = W;
+        canvas.height = H;
+        const ctx = canvas.getContext('2d')!;
+
+        // Background
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, W, H);
+
+        // Title
+        ctx.fillStyle = '#1e293b';
+        ctx.font = 'bold 18px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('สรุปยอดสั่งพิมพ์ A3 แยกหน่วยงาน (7 วัน)', W / 2, 32);
+
+        if (deptData.length === 0) {
+          ctx.fillStyle = '#94a3b8';
+          ctx.font = '14px sans-serif';
+          ctx.fillText('ไม่มีข้อมูล', W / 2, H / 2);
+          canvas.toBlob(blob => {
+            blob!.arrayBuffer().then(resolve);
+          }, 'image/png');
+          return;
+        }
+
+        const maxVal = Math.max(...deptData.map(d => d.sheets), 1);
+        const chartLeft = 150, chartRight = W - 40;
+        const chartTop = 60, chartBottom = H - 80;
+        const barAreaHeight = chartBottom - chartTop;
+        const barHeight = Math.min(40, (barAreaHeight / deptData.length) * 0.65);
+        const barGap = (barAreaHeight - barHeight * deptData.length) / (deptData.length + 1);
+
+        const colors = ['#0ea5e9', '#06b6d4', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#ef4444', '#6366f1'];
+
+        deptData.forEach((d, i) => {
+          const y = chartTop + barGap * (i + 1) + barHeight * i;
+          const barW = (d.sheets / maxVal) * (chartRight - chartLeft);
+
+          // Bar
+          ctx.fillStyle = colors[i % colors.length];
+          ctx.beginPath();
+          const r = 4;
+          ctx.moveTo(chartLeft, y);
+          ctx.lineTo(chartLeft + barW - r, y);
+          ctx.quadraticCurveTo(chartLeft + barW, y, chartLeft + barW, y + r);
+          ctx.lineTo(chartLeft + barW, y + barHeight - r);
+          ctx.quadraticCurveTo(chartLeft + barW, y + barHeight, chartLeft + barW - r, y + barHeight);
+          ctx.lineTo(chartLeft, y + barHeight);
+          ctx.closePath();
+          ctx.fill();
+
+          // Label
+          ctx.fillStyle = '#334155';
+          ctx.font = '13px sans-serif';
+          ctx.textAlign = 'right';
+          ctx.fillText(d.name, chartLeft - 10, y + barHeight / 2 + 4);
+
+          // Value
+          ctx.fillStyle = '#0f172a';
+          ctx.font = 'bold 13px sans-serif';
+          ctx.textAlign = 'left';
+          ctx.fillText(`${d.sheets.toLocaleString()} ใบ`, chartLeft + barW + 8, y + barHeight / 2 + 4);
+        });
+
+        // Axis line
+        ctx.strokeStyle = '#cbd5e1';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(chartLeft, chartTop - 5);
+        ctx.lineTo(chartLeft, chartBottom + 5);
+        ctx.stroke();
+
+        // Legend
+        ctx.fillStyle = '#64748b';
+        ctx.font = '11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('จำนวน A3 ที่ใช้ (ใบ)', W / 2, H - 20);
+
+        canvas.toBlob(blob => {
+          blob!.arrayBuffer().then(resolve);
+        }, 'image/png');
+      });
+    };
+
+    // ── Download with chart ──
     const fileName = `WorkTracker_${minDate || todayTH}_${maxDate || todayTH}.xlsx`;
-    XLSX.writeFile(wb, fileName);
+
+    // 1. Get XLSX buffer from SheetJS
+    const xlsxBuffer = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+
+    // 2. Load into ExcelJS for chart embedding
+    const ejWb = new ExcelJS.Workbook();
+    await ejWb.xlsx.load(xlsxBuffer);
+
+    // 3. Generate chart image
+    const chartImageBuffer = await generateChartImage();
+
+    // 4. Add chart sheet
+    const chartSheet = ejWb.addWorksheet('กราฟสรุป');
+    chartSheet.getColumn(1).width = 5;
+
+    const imageId = ejWb.addImage({
+      buffer: chartImageBuffer,
+      extension: 'png',
+    });
+    chartSheet.addImage(imageId, {
+      tl: { col: 0.5, row: 1 },
+      ext: { width: 800, height: 500 },
+    });
+
+
+
+    const finalBuffer = await ejWb.xlsx.writeBuffer();
+    const blob = new Blob([finalBuffer], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    saveAs(blob, fileName);
+
     logAction('EXPORT', 'dashboard', `ส่งออก Excel ช่วงวันที่ ${orderDateRange}`, { fileName, dateRange: orderDateRange });
   };
 
@@ -699,6 +870,71 @@ export default function Dashboard() {
                       </tbody>
                     </table>
                   </div>
+                </div>
+              )}
+            </div>
+
+            {/* === Today's Orders List === */}
+            <div className="mb-8">
+              <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                <span className="text-2xl">📝</span> รายการสั่งพิมพ์วันนี้
+                <span className="text-sm font-normal text-slate-500">({new Date().toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' })})</span>
+              </h3>
+              {dailyOrders.length === 0 ? (
+                <div className="text-center py-6 text-slate-400 text-sm bg-white/50 rounded-xl border border-slate-200/40">
+                  ยังไม่มีรายการสั่งพิมพ์ในวันนี้
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-slate-200/60 bg-white/70 backdrop-blur-md shadow-sm">
+                  <table className="w-full text-sm text-left">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200/60 text-slate-500 text-xs uppercase tracking-wider font-semibold">
+                        <th className="py-3 px-4">หน่วยงาน</th>
+                        <th className="py-3 px-4">Lot / สินค้า</th>
+                        <th className="py-3 px-4 text-right">เป้าหมาย</th>
+                        <th className="py-3 px-4 text-right text-sky-600">A3 ใช้</th>
+                        <th className="py-3 px-4 text-right text-red-500">ชิ้นเสีย</th>
+                        <th className="py-3 px-4 text-right text-red-400">A3 เสีย</th>
+                        <th className="py-3 px-4 text-right text-amber-600">ส่วนเกิน</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {dailyOrders.map(order => (
+                        <tr key={order.id} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="py-3 px-4 text-slate-600">{order.department}</td>
+                          <td className="py-3 px-4">
+                            <div className="font-semibold text-slate-800">{order.lotName}</div>
+                            <div className="text-xs text-slate-400">{order.productName}</div>
+                          </td>
+                          <td className="py-3 px-4 text-right font-medium text-slate-700">{order.targetQty.toLocaleString()}</td>
+                          <td className="py-3 px-4 text-right font-bold text-sky-600">{order.sheetsNeeded.toLocaleString()} ใบ</td>
+                          <td className="py-3 px-4 text-right">
+                            {order.wasteQty > 0 ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-red-100 text-red-700">{order.wasteQty.toLocaleString()} ชิ้น</span>
+                            ) : <span className="text-slate-300">-</span>}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            {order.wasteA3 > 0 ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-red-50 text-red-500">{order.wasteA3.toLocaleString()} ใบ</span>
+                            ) : <span className="text-slate-300">-</span>}
+                          </td>
+                          <td className="py-3 px-4 text-right font-bold text-amber-500">
+                            {order.excessQty > 0 ? order.excessQty.toLocaleString() : <span className="text-slate-300">-</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-slate-100 font-bold text-slate-800 border-t-2 border-slate-300">
+                        <td className="py-3 px-4" colSpan={2}>รวม</td>
+                        <td className="py-3 px-4 text-right">{dailyOrders.reduce((s, o) => s + o.targetQty, 0).toLocaleString()}</td>
+                        <td className="py-3 px-4 text-right text-sky-600">{dailyOrders.reduce((s, o) => s + o.sheetsNeeded, 0).toLocaleString()} ใบ</td>
+                        <td className="py-3 px-4 text-right text-red-600">{dailyOrders.reduce((s, o) => s + o.wasteQty, 0) > 0 ? `${dailyOrders.reduce((s, o) => s + o.wasteQty, 0).toLocaleString()} ชิ้น` : '-'}</td>
+                        <td className="py-3 px-4 text-right text-red-500">{dailyOrders.reduce((s, o) => s + o.wasteA3, 0) > 0 ? `${dailyOrders.reduce((s, o) => s + o.wasteA3, 0).toLocaleString()} ใบ` : '-'}</td>
+                        <td className="py-3 px-4 text-right text-amber-600">{dailyOrders.reduce((s, o) => s + o.excessQty, 0).toLocaleString()}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
                 </div>
               )}
             </div>

@@ -111,7 +111,7 @@ export default function PrintOrders() {
   };
 
   const [formData, setFormData] = useState({
-    department: "ZT",
+    department: "",
     lotName: "",
     paperType: "สติกเกอร์",
     productId: "",
@@ -279,7 +279,7 @@ export default function PrintOrders() {
         });
 
         setFormData({
-          department: "ZT",
+          department: "",
           lotName: "",
           paperType: "สติกเกอร์",
           productId: "",
@@ -348,6 +348,7 @@ export default function PrintOrders() {
                   onChange={(e) => setFormData({ ...formData, department: e.target.value })}
                   required
                 >
+                  <option value="" disabled className="text-gray-400">เลือกหน่วยงาน...</option>
                   <option value="ZT" className="text-gray-900">ZT</option>
                   <option value="13 ไร่" className="text-gray-900">13 ไร่</option>
                   <option value="หน่วยงานอื่นๆ" className="text-gray-900">หน่วยงานอื่นๆ</option>
