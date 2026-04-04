@@ -199,20 +199,7 @@ export default function Dashboard() {
         if (txData && txData.length > 0) {
           const outTx = txData[0];
 
-          // 2. Create a reverse IN transaction to restore stock
-          const { data: { session } } = await supabase.auth.getSession();
-          await supabase
-            .from('paper_transactions')
-            .insert([{
-              date: new Date().toISOString().split('T')[0],
-              transaction_type: 'IN',
-              paper_type: outTx.paper_type,
-              qty: outTx.qty,
-              description: `คืนสต็อค (ลบคำสั่งพิมพ์)`,
-              user_id: session?.user?.id || null,
-            }]);
-
-          // 3. Delete the original OUT transaction
+          // 2. Delete the original OUT transaction to correctly refund stock without duplication
           await supabase
             .from('paper_transactions')
             .delete()
@@ -233,6 +220,8 @@ export default function Dashboard() {
       alert("ลบข้อมูลไม่สำเร็จ: " + error.message);
     }
   };
+
+
 
   const handleOpenEdit = (entry: any) => {
     setEditingEntry(entry);
