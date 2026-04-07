@@ -26,6 +26,12 @@ interface DashboardOrderGroup {
   entries: any[]; // The raw Supabase rows that make up this group
 }
 
+interface Product {
+  id: string;
+  name: string;
+  qtyPerA3: number;
+}
+
 export default function Dashboard() {
   const router = useRouter();
 
@@ -45,7 +51,12 @@ export default function Dashboard() {
     wasteA3: "",
     wasteA3Remark: "",
     department: "",
+    lotName: "",
+    productId: ""
   });
+
+  const [products, setProducts] = useState<Product[]>([]);
+  const [isLoadingProducts, setIsLoadingProducts] = useState(false);
 
   const toggleGroup = (groupId: string) => {
     setExpandedGroups(prev => ({
@@ -56,6 +67,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchOrders();
+    fetchProducts();
     // Fetch current user
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
@@ -69,6 +81,30 @@ export default function Dashboard() {
       }
     });
   }, []);
+
+  const fetchProducts = async () => {
+    setIsLoadingProducts(true);
+    try {
+      const { data, error } = await supabase
+        .from('products')
+        .select('*')
+        .order('name', { ascending: true });
+
+      if (error) throw error;
+
+      const formattedProducts: Product[] = data?.map(p => ({
+        id: p.id,
+        name: p.name,
+        qtyPerA3: p.qty_per_a3
+      })) || [];
+
+      setProducts(formattedProducts);
+    } catch (error: any) {
+      console.error("Error fetching products:", error);
+    } finally {
+      setIsLoadingProducts(false);
+    }
+  };
 
   const fetchOrders = async () => {
     setIsLoadingOrders(true);
@@ -257,6 +293,8 @@ export default function Dashboard() {
       wasteA3: entry.waste_a3 ? entry.waste_a3.toString() : "",
       wasteA3Remark: entry.waste_a3_remark || "",
       department: entry.department || "",
+      lotName: entry.lot_name || "",
+      productId: entry.product_id || ""
     });
   };
 
@@ -268,7 +306,10 @@ export default function Dashboard() {
       const numTarget = parseInt(editFormData.targetQty) || 0;
       const numWaste = parseInt(editFormData.wasteQty) || 0;
 
-      const ratio = editingEntry.products?.qty_per_a3 || 1;
+      // Find selected product information to get new ratio
+      const selectedProduct = products.find(p => p.id === editFormData.productId);
+      const ratio = selectedProduct ? selectedProduct.qtyPerA3 : (editingEntry.products?.qty_per_a3 || 1);
+      
       const additionalWasteA3 = parseInt(editFormData.wasteA3) || 0;
 
       // Waste pieces offset natural excess first; only add sheets if waste > natural excess
@@ -327,6 +368,8 @@ export default function Dashboard() {
         .from('print_orders')
         .update({
           department: editFormData.department,
+          lot_name: editFormData.lotName,
+          product_id: editFormData.productId,
           target_qty: numTarget,
           waste_qty: numWaste,
           waste_qty_remark: editFormData.wasteQtyRemark,
@@ -1214,7 +1257,9 @@ export default function Dashboard() {
                     <form onSubmit={submitEdit} className="space-y-4">
                       {/* Live preview of recalculated values */}
                       {(() => {
-                        const ratio = editingEntry?.products?.qty_per_a3;
+                        const selectedProduct = products.find(p => p.id === editFormData.productId);
+                        const ratio = selectedProduct ? selectedProduct.qtyPerA3 : (editingEntry?.products?.qty_per_a3 || 1);
+
                         const hasRatio = ratio && ratio > 0;
                         const effectiveRatio = hasRatio ? ratio : 1;
                         const numTarget = parseInt(editFormData.targetQty) || 0;
@@ -1234,16 +1279,16 @@ export default function Dashboard() {
                           <div className="rounded-lg border border-slate-600 overflow-hidden text-sm">
                             {/* Product info bar */}
                             <div className="bg-slate-700/80 px-4 py-2 flex items-center justify-between">
-                              <span className="text-slate-300 font-medium">
-                                📦 {editingEntry?.products?.name || 'ไม่ทราบสินค้า'}
+                              <span className="text-slate-300 font-medium truncate max-w-[200px]">
+                                📦 {selectedProduct?.name || editingEntry?.products?.name || 'ไม่ทราบสินค้า'}
                               </span>
                               {hasRatio ? (
-                                <span className="text-xs bg-sky-500/20 text-sky-300 border border-sky-500/30 px-2 py-0.5 rounded-full">
+                                <span className="text-xs bg-sky-500/20 text-sky-300 border border-sky-500/30 px-2 py-0.5 rounded-full flex-shrink-0">
                                   อัตราส่วน: {ratio} ชิ้น / A3
                                 </span>
                               ) : (
-                                <span className="text-xs bg-red-500/20 text-red-300 border border-red-500/30 px-2 py-0.5 rounded-full">
-                                  ⚠️ ไม่พบอัตราส่วน (ใช้ 1)
+                                <span className="text-xs bg-red-500/20 text-red-300 border border-red-500/30 px-2 py-0.5 rounded-full flex-shrink-0">
+                                  ⚠️ ไม่พบอัตราส่วน
                                 </span>
                               )}
                             </div>
@@ -1277,6 +1322,33 @@ export default function Dashboard() {
                           </div>
                         );
                       })()}
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="form-group">
+                          <label className="form-label text-sm">ชื่อสินค้า</label>
+                          <select
+                            className="input-field text-sm p-2 cursor-pointer bg-slate-800"
+                            value={editFormData.productId}
+                            onChange={(e) => setEditFormData({ ...editFormData, productId: e.target.value })}
+                            required
+                          >
+                            {products.map(p => (
+                              <option key={p.id} value={p.id}>{p.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="form-group">
+                          <label className="form-label text-sm">เลขลอต</label>
+                          <input
+                            type="text"
+                            className="input-field text-sm p-2"
+                            placeholder="เช่น LOT67-001"
+                            value={editFormData.lotName}
+                            onChange={(e) => setEditFormData({ ...editFormData, lotName: e.target.value })}
+                            required
+                          />
+                        </div>
+                      </div>
 
                       <div className="grid grid-cols-2 gap-4">
                         <div className="form-group">
