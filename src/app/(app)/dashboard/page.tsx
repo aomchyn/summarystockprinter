@@ -1,13 +1,14 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import * as XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import { logAction } from "@/lib/auditLog";
+import { PAPER_TYPES } from "../stock/page";
 
 
 interface DashboardOrderGroup {
@@ -41,19 +42,7 @@ export default function Dashboard() {
   const [isLoadingOrders, setIsLoadingOrders] = useState(true);
   const [ordersError, setOrdersError] = useState<string | null>(null);
 
-  // --- Inline Edit/Delete State ---
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
-  const [editingEntry, setEditingEntry] = useState<any | null>(null);
-  const [editFormData, setEditFormData] = useState({
-    targetQty: "",
-    wasteQty: "",
-    wasteQtyRemark: "",
-    wasteA3: "",
-    wasteA3Remark: "",
-    department: "",
-    lotName: "",
-    productId: ""
-  });
 
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoadingProducts, setIsLoadingProducts] = useState(false);
@@ -63,6 +52,125 @@ export default function Dashboard() {
       ...prev,
       [groupId]: !prev[groupId]
     }));
+  };
+
+  // --- Edit Modal State & Handlers ---
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingEntry, setEditingEntry] = useState<any>(null);
+  const [editFormData, setEditFormData] = useState({
+    department: "",
+    lotName: "",
+    paperType: "สติกเกอร์",
+    productId: "",
+    targetQty: "",
+    wasteQty: "",
+    wasteQtyRemark: "",
+    wasteA3: "",
+    wasteA3Remark: "",
+  });
+  const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
+
+  const handleDeleteEntry = async (entryId: string, lotName: string, sheetsNeeded: number) => {
+    if (!window.confirm(`⚠️ ยืนยันการลบรายการ: ${lotName} ?\n\nระบบจะลบข้อมูลการสั่งพิมพ์และคืนสต็อคกระดาษ ${sheetsNeeded} ใบกลับเข้าคลัง`)) {
+      return;
+    }
+    try {
+      const { error: err2 } = await supabase.from('paper_transactions').delete().eq('reference_id', entryId);
+      if (err2) console.error("Failed to delete paper_transaction logic", err2);
+
+      const { error: err1 } = await supabase.from('print_orders').delete().eq('id', entryId);
+      if (err1) throw err1;
+
+      logAction('DELETE', 'dashboard', `ลบคำสั่งพิมพ์ ล็อต ${lotName}`, { entryId, sheetsNeeded });
+      alert("✅ ลบรายการสำเร็จ (คืนสต็อคเรียบร้อย)");
+      fetchOrders();
+    } catch (err: any) {
+      alert("❌ ลบรายการไม่สำเร็จ: " + err.message);
+    }
+  };
+
+  const handleOpenEdit = (entry: any) => {
+    setEditingEntry(entry);
+    setEditFormData({
+      department: entry.department || "",
+      lotName: entry.lot_name || entry.lotName || "",
+      paperType: entry.paper_type || "สติกเกอร์",
+      productId: entry.product_id || entry.products?.id || entry.productId || "",
+      targetQty: entry.target_qty?.toString() || entry.targetQty?.toString() || "",
+      wasteQty: entry.waste_qty?.toString() || entry.wasteQty?.toString() || "",
+      wasteQtyRemark: entry.waste_qty_remark || entry.wasteQtyRemark || "",
+      wasteA3: entry.waste_a3?.toString() || entry.wasteA3?.toString() || "",
+      wasteA3Remark: entry.waste_a3_remark || entry.wasteA3Remark || "",
+    });
+    setIsEditModalOpen(true);
+  };
+
+  const editCalculationPreview = useMemo(() => {
+    if (!editFormData.productId || !editFormData.targetQty) return null;
+    const selectedProduct = products.find(p => p.id === editFormData.productId);
+    const target = parseInt(editFormData.targetQty, 10);
+    const wasteA3 = editFormData.wasteA3 ? parseInt(editFormData.wasteA3, 10) : 0;
+    const wasteQty = editFormData.wasteQty ? parseInt(editFormData.wasteQty, 10) : 0;
+
+    if (!selectedProduct || isNaN(target) || target <= 0) return null;
+    const qtyPerA3 = selectedProduct.qtyPerA3;
+    const baseSheetsForTarget = Math.ceil(target / qtyPerA3);
+    const naturalTotal = baseSheetsForTarget * qtyPerA3;
+    const naturalExcess = naturalTotal - target;
+
+    let extraSheetsForWaste = 0;
+    if (wasteQty > naturalExcess) {
+      extraSheetsForWaste = Math.ceil((wasteQty - naturalExcess) / qtyPerA3);
+    }
+    const productiveSheets = baseSheetsForTarget + extraSheetsForWaste;
+    const totalPrinted = productiveSheets * qtyPerA3;
+    const excessQty = Math.max(0, totalPrinted - target - wasteQty);
+    const sheetsNeeded = productiveSheets + wasteA3;
+
+    return { sheetsNeeded, totalPrinted, excessQty, productName: selectedProduct.name, qtyPerA3 };
+  }, [editFormData.productId, editFormData.targetQty, editFormData.wasteA3, editFormData.wasteQty, products]);
+
+  const submitEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editCalculationPreview || !editingEntry) return;
+
+    setIsSubmittingEdit(true);
+    try {
+      const entryId = editingEntry.id || editingEntry.entry_id;
+      
+      const { error: pErr } = await supabase.from('print_orders').update({
+        department: editFormData.department,
+        lot_name: editFormData.lotName,
+        product_id: editFormData.productId,
+        target_qty: parseInt(editFormData.targetQty, 10),
+        sheets_needed: editCalculationPreview.sheetsNeeded,
+        total_printed: editCalculationPreview.totalPrinted,
+        excess_qty: editCalculationPreview.excessQty,
+        waste_qty: editFormData.wasteQty ? parseInt(editFormData.wasteQty, 10) : null,
+        waste_qty_remark: editFormData.wasteQtyRemark || null,
+        waste_a3: editFormData.wasteA3 ? parseInt(editFormData.wasteA3, 10) : null,
+        waste_a3_remark: editFormData.wasteA3Remark || null,
+      }).eq('id', entryId);
+
+      if (pErr) throw pErr;
+
+      const { error: txErr } = await supabase.from('paper_transactions').update({
+        paper_type: editFormData.paperType,
+        qty: editCalculationPreview.sheetsNeeded,
+        description: `สั่งพิมพ์ล็อต: ${editFormData.lotName} (แก้ไข)`
+      }).eq('reference_id', entryId).eq('transaction_type', 'OUT');
+
+      if (txErr) console.error("Failed to update stock logic", txErr);
+
+      logAction('UPDATE', 'dashboard', `แก้ไขคำสั่งพิมพ์ ล็อต ${editFormData.lotName}`, { entryId });
+      alert("✅ บันทึกการแก้ไขสำเร็จ");
+      setIsEditModalOpen(false);
+      fetchOrders();
+    } catch (err: any) {
+      alert("❌ บันทึกแก้ไขไม่สำเร็จ: " + err.message);
+    } finally {
+      setIsSubmittingEdit(false);
+    }
   };
 
   useEffect(() => {
@@ -80,6 +188,33 @@ export default function Dashboard() {
         setCurrentUser(displayName);
       }
     });
+
+    // --- AUTO CLEANUP ORPHANED OUT TRANSACTIONS ---
+    const cleanupOrphans = async () => {
+      try {
+        const { data: po } = await supabase.from('print_orders').select('id');
+        const validIds = new Set((po || []).map(o => o.id));
+
+        const { data: tx } = await supabase.from('paper_transactions').select('*').eq('transaction_type', 'OUT');
+        
+        let deleted = 0;
+        for (const t of (tx || [])) {
+          if (t.reference_id === null || !validIds.has(t.reference_id)) {
+            await supabase.from('paper_transactions').delete().eq('id', t.id);
+            deleted++;
+          }
+        }
+        if (deleted > 0) {
+          console.log(`Cleaned up ${deleted} orphaned OUT transactions.`);
+          // Refresh the orders and stock summary internally if needed
+        }
+      } catch (err) {
+        console.error("Cleanup error:", err);
+      }
+    };
+    cleanupOrphans();
+    // ------------------------------------------
+
   }, []);
 
   const fetchProducts = async () => {
@@ -110,10 +245,13 @@ export default function Dashboard() {
     setIsLoadingOrders(true);
     setOrdersError(null);
     try {
-      // Calculate date 7 days ago
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      const dateString = sevenDaysAgo.toISOString().split('T')[0];
+      // Calculate Monday of the current week
+      const current = new Date();
+      const day = current.getDay();
+      // If Sunday (0), we want to go back 6 days to Monday. If Mon (1), go back 0. If Tue (2), go back 1, etc.
+      const diff = current.getDate() - day + (day === 0 ? -6 : 1);
+      const startOfWeek = new Date(current.setDate(diff));
+      const dateString = startOfWeek.toISOString().split('T')[0];
 
       // Fetch all orders from the past 7 days
       const { data, error } = await supabase
@@ -208,54 +346,7 @@ export default function Dashboard() {
     router.refresh();
   };
 
-  const handleDeleteEntry = async (entryId: string, entryDate: string) => {
-    // Check if entry is within 7 days
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const entryDateObj = new Date(entryDate);
-    const isWithinWeek = entryDateObj >= sevenDaysAgo;
 
-    const confirmMsg = isWithinWeek
-      ? "คุณต้องการลบรายการสั่งพิมพ์นี้ใช่หรือไม่?\n(กระดาษที่ใช้จะถูกคืนกลับเข้าสต็อคอัตโนมัติ)"
-      : "คุณต้องการลบรายการสั่งพิมพ์นี้ใช่หรือไม่?\n(รายการเก่าเกิน 7 วัน จะไม่คืนสต็อคกระดาษ)";
-
-    if (!window.confirm(confirmMsg)) return;
-
-    try {
-      // Only restore stock if entry is within the last 7 days
-      if (isWithinWeek) {
-        // 1. Find the OUT paper transaction for this order
-        const { data: txData } = await supabase
-          .from('paper_transactions')
-          .select('*')
-          .eq('reference_id', entryId)
-          .eq('transaction_type', 'OUT')
-          .limit(1);
-
-        if (txData && txData.length > 0) {
-          const outTx = txData[0];
-
-          // 2. Delete the original OUT transaction to correctly refund stock without duplication
-          await supabase
-            .from('paper_transactions')
-            .delete()
-            .eq('id', outTx.id);
-        }
-      }
-
-      // 4. Delete the print order itself
-      const { error } = await supabase
-        .from('print_orders')
-        .delete()
-        .eq('id', entryId);
-
-      if (error) throw error;
-      logAction('DELETE', 'dashboard', `ลบคำสั่งพิมพ์ #${entryId}${isWithinWeek ? ' (คืนสต็อค)' : ''}`, { entryId, entryDate, stockRestored: isWithinWeek });
-      fetchOrders();
-    } catch (error: any) {
-      alert("ลบข้อมูลไม่สำเร็จ: " + error.message);
-    }
-  };
 
   const handleResetWeekly = async () => {
     if (!window.confirm("⚠️ คำเตือน: คุณต้องการรีเซ็ตประวัติประจำสัปดาห์ใช่หรือไม่?\n\n- ประวัติสั่งพิมพ์ทั้งหมดจะถูกลบ\n- ประวัติสต็อคจะถูกลบและยกยอดคงเหลือปัจจุบันมาให้ใหม่\n- การดำเนินการนี้ไม่สามารถย้อนคืนได้")) {
@@ -283,118 +374,6 @@ export default function Dashboard() {
   };
 
 
-
-  const handleOpenEdit = (entry: any) => {
-    setEditingEntry(entry);
-    setEditFormData({
-      targetQty: entry.target_qty.toString(),
-      wasteQty: entry.waste_qty ? entry.waste_qty.toString() : "",
-      wasteQtyRemark: entry.waste_qty_remark || "",
-      wasteA3: entry.waste_a3 ? entry.waste_a3.toString() : "",
-      wasteA3Remark: entry.waste_a3_remark || "",
-      department: entry.department || "",
-      lotName: entry.lot_name || "",
-      productId: entry.product_id || ""
-    });
-  };
-
-  const submitEdit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingEntry) return;
-
-    try {
-      const numTarget = parseInt(editFormData.targetQty) || 0;
-      const numWaste = parseInt(editFormData.wasteQty) || 0;
-
-      // Find selected product information to get new ratio
-      const selectedProduct = products.find(p => p.id === editFormData.productId);
-      const ratio = selectedProduct ? selectedProduct.qtyPerA3 : (editingEntry.products?.qty_per_a3 || 1);
-      
-      const additionalWasteA3 = parseInt(editFormData.wasteA3) || 0;
-
-      // Waste pieces offset natural excess first; only add sheets if waste > natural excess
-      const baseSheetsForTarget = Math.ceil(numTarget / ratio);
-      const naturalExcess = (baseSheetsForTarget * ratio) - numTarget;
-      let extraSheetsForWaste = 0;
-      if (numWaste > naturalExcess) {
-        extraSheetsForWaste = Math.ceil((numWaste - naturalExcess) / ratio);
-      }
-      // Productive sheets affect piece count; wasteA3 only deducts from stock
-      const productiveSheets = baseSheetsForTarget + extraSheetsForWaste;
-      const newSheetsNeeded = productiveSheets + additionalWasteA3;
-      const totalPrinted = productiveSheets * ratio;
-
-      // --- Stock adjustment ---
-      const oldSheetsNeeded = editingEntry.sheets_needed || 0;
-      const sheetsDiff = newSheetsNeeded - oldSheetsNeeded; // positive = used more, negative = used less
-
-      if (sheetsDiff !== 0) {
-        // Find the paper_transaction linked to this entry to get paper_type
-        const { data: txData } = await supabase
-          .from('paper_transactions')
-          .select('paper_type')
-          .eq('reference_id', editingEntry.id)
-          .eq('transaction_type', 'OUT')
-          .limit(1);
-
-        const paperType = txData?.[0]?.paper_type || 'ไม่ระบุ';
-        const { data: { session } } = await supabase.auth.getSession();
-
-        if (sheetsDiff > 0) {
-          // Used more sheets → additional OUT
-          await supabase.from('paper_transactions').insert([{
-            date: new Date().toISOString().split('T')[0],
-            transaction_type: 'OUT',
-            paper_type: paperType,
-            qty: sheetsDiff,
-            description: `ปรับเพิ่ม (แก้ไขคำสั่งพิมพ์ +${sheetsDiff} ใบ)`,
-            user_id: session?.user?.id || null,
-          }]);
-        } else {
-          // Used fewer sheets → return stock IN
-          await supabase.from('paper_transactions').insert([{
-            date: new Date().toISOString().split('T')[0],
-            transaction_type: 'IN',
-            paper_type: paperType,
-            qty: Math.abs(sheetsDiff),
-            description: `คืนสต็อค (แก้ไขคำสั่งพิมพ์ ${sheetsDiff} ใบ)`,
-            user_id: session?.user?.id || null,
-          }]);
-        }
-      }
-
-      // --- Update print_orders ---
-      const { error } = await supabase
-        .from('print_orders')
-        .update({
-          department: editFormData.department,
-          lot_name: editFormData.lotName,
-          product_id: editFormData.productId,
-          target_qty: numTarget,
-          waste_qty: numWaste,
-          waste_qty_remark: editFormData.wasteQtyRemark,
-          waste_a3: additionalWasteA3,
-          waste_a3_remark: editFormData.wasteA3Remark,
-          sheets_needed: newSheetsNeeded,
-          total_printed: totalPrinted,
-        })
-        .eq('id', editingEntry.id);
-
-      if (error) throw error;
-
-      logAction('UPDATE', 'dashboard', `แก้ไขคำสั่งพิมพ์ #${editingEntry.id}`, {
-        id: editingEntry.id,
-        target_qty: numTarget,
-        sheets_needed: newSheetsNeeded,
-        stock_diff: sheetsDiff,
-      });
-
-      setEditingEntry(null);
-      fetchOrders();
-    } catch (err: any) {
-      alert("บันทึกการแก้ไขไม่สำเร็จ: " + err.message);
-    }
-  };
 
   const ordersByDepartment = useMemo(() => {
     const grouped: Record<string, DashboardOrderGroup[]> = {};
@@ -533,9 +512,37 @@ export default function Dashboard() {
     return { byDept: summary, byPaperType };
   }, [printOrders]);
 
+  // --- Daily Paper History (Week to Date) ---
+  const dailyPaperHistory = useMemo(() => {
+    const history: Record<string, Record<string, number>> = {};
+    
+    printOrders.forEach(group => {
+      group.entries.forEach((entry: any) => {
+        const date = entry.date || (entry.created_at ? entry.created_at.split('T')[0] : '');
+        if (!date) return;
+        
+        const pt = entry.paper_type || 'ไม่ระบุ';
+        if (!history[date]) history[date] = {};
+        if (!history[date][pt]) history[date][pt] = 0;
+        
+        history[date][pt] += (entry.sheets_needed || 0);
+      });
+    });
+
+    const sortedDates = Object.keys(history).sort((a, b) => b.localeCompare(a));
+    return sortedDates.map(date => ({
+      dateTag: date,
+      dateLabel: new Date(date).toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }),
+      types: Object.entries(history[date]).map(([name, qty]) => ({ name, qty })),
+      totalSheets: Object.values(history[date]).reduce((a, b) => a + b, 0)
+    }));
+  }, [printOrders]);
+
   // --- Excel Export ---
   const handleExportExcel = async () => {
-    const wb = XLSX.utils.book_new();
+    const ejWb = new ExcelJS.Workbook();
+    ejWb.creator = 'WorkTracker';
+    ejWb.created = new Date();
 
     // ── Date range from current printOrders ──
     const allDates = printOrders.flatMap(g => g.entries.map((e: any) => e.date as string)).filter(Boolean);
@@ -547,61 +554,90 @@ export default function Dashboard() {
       : '-';
     const todayTH = new Date().toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
-    // ── Helper: shift all cells in ws down by N rows and prepend header rows ──
-    const prependHeader = (ws: XLSX.WorkSheet, headerRows: any[][]) => {
-      const n = headerRows.length;
-      const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
-      // Shift cells downward
-      for (let R = range.e.r; R >= range.s.r; R--) {
-        for (let C = range.s.c; C <= range.e.c; C++) {
-          const oldAddr = XLSX.utils.encode_cell({ r: R, c: C });
-          const newAddr = XLSX.utils.encode_cell({ r: R + n, c: C });
-          if (ws[oldAddr]) { ws[newAddr] = ws[oldAddr]; delete ws[oldAddr]; }
-        }
-      }
-      // Extend ref
-      ws['!ref'] = XLSX.utils.encode_range({
-        s: { r: 0, c: range.s.c },
-        e: { r: range.e.r + n, c: range.e.c },
-      });
-      // Write header rows at top
-      XLSX.utils.sheet_add_aoa(ws, headerRows, { origin: 'A1' });
+    // Helper for adding a title with bold A1 and Date in B1
+    const addHeaderToSheet = (ws: ExcelJS.Worksheet, title: string, subtitleLabel: string, subtitleVal: string) => {
+      const row = ws.getRow(1);
+      row.values = [title, `${subtitleLabel}: ${subtitleVal}`];
+      row.getCell(1).font = { bold: true, size: 12 };
+      ws.addRow([]); // empty divider
     };
 
     // ── Sheet 0: Paper Stock Summary ──
     const { data: txAll } = await supabase
       .from('paper_transactions')
-      .select('paper_type, transaction_type, qty');
+      .select('paper_type, transaction_type, qty, reference_id');
 
-    const stockMap: Record<string, { totalIn: number; totalOut: number }> = {};
+    const stockMap: Record<string, { totalIn: number; totalOutAllTime: number; thisWeekOut: number }> = {};
     (txAll || []).forEach((tx: any) => {
       const pt = tx.paper_type || 'ไม่ระบุ';
-      if (!stockMap[pt]) stockMap[pt] = { totalIn: 0, totalOut: 0 };
+      if (!stockMap[pt]) stockMap[pt] = { totalIn: 0, totalOutAllTime: 0, thisWeekOut: 0 };
       if (tx.transaction_type === 'IN') stockMap[pt].totalIn += tx.qty;
-      else stockMap[pt].totalOut += tx.qty;
+      else stockMap[pt].totalOutAllTime += tx.qty;
+    });
+
+    // Replace thisWeekOut using the EXACT data from Dashboard (weeklySummary)
+    Object.entries(weeklySummary.byPaperType).forEach(([pt, data]) => {
+      if (!stockMap[pt]) stockMap[pt] = { totalIn: 0, totalOutAllTime: 0, thisWeekOut: 0 };
+      stockMap[pt].thisWeekOut = data.sheetsUsed;
     });
 
     const stockRows = Object.entries(stockMap).map(([pt, s]) => ({
       'ประเภทกระดาษ': pt,
       'รับเข้ารวม (ใบ)': s.totalIn,
-      'ใช้ออกรวม (ใบ)': s.totalOut,
-      'คงเหลือ (ใบ)': s.totalIn - s.totalOut,
+      'ใช้ออกรวมสัปดาห์นี้ (ใบ)': s.thisWeekOut,
+      'คงเหลือในระบบ (ใบ)': s.totalIn - s.totalOutAllTime,
     }));
     stockRows.push({
       'ประเภทกระดาษ': 'รวมทั้งหมด',
       'รับเข้ารวม (ใบ)': stockRows.reduce((s, r) => s + (r['รับเข้ารวม (ใบ)'] as number), 0),
-      'ใช้ออกรวม (ใบ)': stockRows.reduce((s, r) => s + (r['ใช้ออกรวม (ใบ)'] as number), 0),
-      'คงเหลือ (ใบ)': stockRows.reduce((s, r) => s + (r['คงเหลือ (ใบ)'] as number), 0),
+      'ใช้ออกรวมสัปดาห์นี้ (ใบ)': stockRows.reduce((s, r) => s + (r['ใช้ออกรวมสัปดาห์นี้ (ใบ)'] as number), 0),
+      'คงเหลือในระบบ (ใบ)': stockRows.reduce((s, r) => s + (r['คงเหลือในระบบ (ใบ)'] as number), 0),
     });
-    const wsStock = XLSX.utils.json_to_sheet(stockRows);
-    wsStock['!cols'] = [{ wch: 20 }, { wch: 18 }, { wch: 18 }, { wch: 16 }];
-    prependHeader(wsStock, [
-      [`สรุปยอดสต็อคกระดาษ A3`, `ณ วันที่: ${todayTH}`],
-      [],
-    ]);
-    XLSX.utils.book_append_sheet(wb, wsStock, 'สต็อคกระดาษ');
 
-    // ── Sheet 1: Weekly Department Summary ──
+    const wsStock = ejWb.addWorksheet('สต็อคกระดาษ');
+    addHeaderToSheet(wsStock, `สรุปยอดสต็อคกระดาษ A3`, `ณ วันที่`, todayTH);
+    
+    wsStock.columns = [
+      { width: 20 }, { width: 18 }, { width: 22 }, { width: 20 }
+    ];
+    
+    const headerRowStock = wsStock.getRow(3);
+    headerRowStock.values = ['ประเภทกระดาษ', 'รับเข้ารวม (ใบ)', 'ใช้ออกรวมสัปดาห์นี้ (ใบ)', 'คงเหลือในระบบ (ใบ)'];
+    headerRowStock.font = { bold: true };
+
+    stockRows.forEach(row => {
+      const r = wsStock.addRow([row['ประเภทกระดาษ'], row['รับเข้ารวม (ใบ)'], row['ใช้ออกรวมสัปดาห์นี้ (ใบ)'], row['คงเหลือในระบบ (ใบ)']]);
+      if (row['ประเภทกระดาษ'] === 'รวมทั้งหมด') r.font = { bold: true };
+    });
+
+    // ── Sheet 1: Daily Summary (Today) ──
+    const dailyRows = Object.entries(dailySummary.byDept).map(([dept, d]) => ({
+      'หน่วยงาน': dept,
+      'A3 ใช้รวม (ใบ)': d.sheetsUsed,
+      'A3 ดี (ใบ)': d.sheetsGood,
+      'A3 เสีย (ใบ)': d.sheetsWaste,
+    }));
+    dailyRows.push({
+      'หน่วยงาน': 'รวมทั้งหมด',
+      'A3 ใช้รวม (ใบ)': dailyRows.reduce((s, r) => s + (r['A3 ใช้รวม (ใบ)'] as number), 0),
+      'A3 ดี (ใบ)': dailyRows.reduce((s, r) => s + (r['A3 ดี (ใบ)'] as number), 0),
+      'A3 เสีย (ใบ)': dailyRows.reduce((s, r) => s + (r['A3 เสีย (ใบ)'] as number), 0),
+    });
+
+    const wsDaily = ejWb.addWorksheet('สรุปประจำวัน');
+    addHeaderToSheet(wsDaily, `สรุปยอดสั่งพิมพ์ราย`, `วันที่`, todayTH);
+    wsDaily.columns = [
+      { width: 20 }, { width: 18 }, { width: 14 }, { width: 14 }
+    ];
+    const headerRowDaily = wsDaily.getRow(3);
+    headerRowDaily.values = ['หน่วยงาน', 'A3 ใช้รวม (ใบ)', 'A3 ดี (ใบ)', 'A3 เสีย (ใบ)'];
+    headerRowDaily.font = { bold: true };
+    dailyRows.forEach(row => {
+      const r = wsDaily.addRow([row['หน่วยงาน'], row['A3 ใช้รวม (ใบ)'], row['A3 ดี (ใบ)'], row['A3 เสีย (ใบ)']]);
+      if (row['หน่วยงาน'] === 'รวมทั้งหมด') r.font = { bold: true };
+    });
+
+    // ── Sheet 2: Weekly Department Summary ──
     const weeklyRows = Object.entries(weeklySummary.byDept).map(([dept, d]) => ({
       'หน่วยงาน': dept,
       'ยอดสั่ง (ชิ้น)': d.targetQty,
@@ -621,16 +657,42 @@ export default function Dashboard() {
       'ชิ้นเสีย': wTotals.reduce((s, d) => s + d.wasteQty, 0),
       'ส่วนเกิน (ชิ้น)': wTotals.reduce((s, d) => s + d.excessQty, 0),
     });
-    const ws1 = XLSX.utils.json_to_sheet(weeklyRows);
-    ws1['!cols'] = [{ wch: 20 }, { wch: 16 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 18 }];
-    prependHeader(ws1, [
-      [`สรุปยอดสั่งพิมพ์รายหน่วยงาน`, `ช่วงวันที่: ${orderDateRange}`],
-      [],
-    ]);
-    XLSX.utils.book_append_sheet(wb, ws1, 'สรุปรายสัปดาห์');
+
+    const ws1 = ejWb.addWorksheet('สรุปรายสัปดาห์ (สัปดาห์ปัจจุบัน)');
+    addHeaderToSheet(ws1, `สรุปยอดสั่งพิมพ์ราย`, `ช่วงวันที่`, orderDateRange);
+    ws1.columns = [
+      { width: 20 }, { width: 16 }, { width: 18 }, { width: 14 }, { width: 14 }, { width: 12 }, { width: 18 }
+    ];
+    const headerRow1 = ws1.getRow(3);
+    headerRow1.values = ['หน่วยงาน', 'ยอดสั่ง (ชิ้น)', 'A3 ใช้รวม (ใบ)', 'A3 ดี (ใบ)', 'A3 เสีย (ใบ)', 'ชิ้นเสีย', 'ส่วนเกิน (ชิ้น)'];
+    headerRow1.font = { bold: true };
+    weeklyRows.forEach(row => {
+      const r = ws1.addRow([row['หน่วยงาน'], row['ยอดสั่ง (ชิ้น)'], row['A3 ใช้รวม (ใบ)'], row['A3 ดี (ใบ)'], row['A3 เสีย (ใบ)'], row['ชิ้นเสีย'], row['ส่วนเกิน (ชิ้น)']]);
+      if (row['หน่วยงาน'] === 'รวมทั้งหมด') r.font = { bold: true };
+    });
+
+    // ── Sheet 3: Daily Paper Usage History ──
+    const wsDailyPaper = ejWb.addWorksheet('ประวัติใช้กระดาษรายวัน');
+    addHeaderToSheet(wsDailyPaper, `ประวัติการใช้กระดาษรายวัน (A3)`, `สัปดาห์ปัจจุบัน`, ``);
+    wsDailyPaper.columns = [
+      { width: 30 }, { width: 25 }, { width: 18 }
+    ];
+    const headerRowDailyPaper = wsDailyPaper.getRow(3);
+    headerRowDailyPaper.values = ['วันที่', 'ประเภทกระดาษ', 'จำนวนใช้ (ใบ)'];
+    headerRowDailyPaper.font = { bold: true };
+
+    dailyPaperHistory.forEach(day => {
+      day.types.forEach((t) => {
+        wsDailyPaper.addRow([day.dateLabel, t.name, t.qty]);
+      });
+      // Add a summary row for the day
+      const summaryRow = wsDailyPaper.addRow(['รวมเฉพาะวัน', '', day.totalSheets]);
+      summaryRow.font = { italic: true, bold: true };
+      summaryRow.getCell(3).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F7FF' } };
+      wsDailyPaper.addRow([]); // empty divider
+    });
 
     // ── Per-department sheets ──
-    const detailColWidths = [{ wch: 16 }, { wch: 14 }, { wch: 22 }, { wch: 16 }, { wch: 16 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 28 }];
     const buildDetailRows = (groups: typeof printOrders) => {
       const rows: Record<string, string | number>[] = groups.map(group => ({
         'หน่วยงาน': group.department || '-',
@@ -666,13 +728,24 @@ export default function Dashboard() {
       const deptRange = dMin && dMax
         ? (dMin === dMax ? fmtDate(dMin) : `${fmtDate(dMin)} - ${fmtDate(dMax)}`)
         : '-';
-      const wsDept = XLSX.utils.json_to_sheet(buildDetailRows(deptGroups));
-      wsDept['!cols'] = detailColWidths;
-      prependHeader(wsDept, [
-        [`รายละเอียดคำสั่งพิมพ์ — ${dept}`, `ช่วงวันที่: ${deptRange}`],
-        [],
-      ]);
-      XLSX.utils.book_append_sheet(wb, wsDept, dept.substring(0, 31));
+      
+      let wsName = dept.substring(0, 31).replace(/[\\/*?:\[\]]/g, '');
+      const wsDept = ejWb.addWorksheet(wsName);
+      
+      addHeaderToSheet(wsDept, `รายละเอียดคำสั่งพิมพ์ — ${dept}`, `ช่วงวันที่`, deptRange);
+      wsDept.columns = [
+        { width: 16 }, { width: 14 }, { width: 22 }, { width: 16 }, { width: 16 }, { width: 14 }, { width: 12 }, { width: 14 }, { width: 16 }, { width: 28 }
+      ];
+      
+      const headerRowDept = wsDept.getRow(3);
+      headerRowDept.values = ['หน่วยงาน', 'Lot', 'สินค้า', 'เป้าหมาย (ชิ้น)', 'พิมพ์จริง (ชิ้น)', 'A3 ใช้ (ใบ)', 'ชิ้นเสีย', 'A3 เสีย (ใบ)', 'ส่วนเกิน (ชิ้น)', 'หมายเหตุ'];
+      headerRowDept.font = { bold: true };
+      
+      const deptRows = buildDetailRows(deptGroups);
+      deptRows.forEach((row: any) => {
+        const r = wsDept.addRow([row['หน่วยงาน'], row['Lot'], row['สินค้า'], row['เป้าหมาย (ชิ้น)'], row['พิมพ์จริง (ชิ้น)'], row['A3 ใช้ (ใบ)'], row['ชิ้นเสีย'], row['A3 เสีย (ใบ)'], row['ส่วนเกิน (ชิ้น)'], row['หมายเหตุ']]);
+        if (row['หน่วยงาน'] === 'รวมทั้งหมด') r.font = { bold: true };
+      });
     });
 
     // ── Generate Chart Image using Canvas ──
@@ -770,13 +843,6 @@ export default function Dashboard() {
     // ── Download with chart ──
     const fileName = `WorkTracker_${minDate || todayTH}_${maxDate || todayTH}.xlsx`;
 
-    // 1. Get XLSX buffer from SheetJS
-    const xlsxBuffer = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
-
-    // 2. Load into ExcelJS for chart embedding
-    const ejWb = new ExcelJS.Workbook();
-    await ejWb.xlsx.load(xlsxBuffer);
-
     // 3. Generate chart image
     const chartImageBuffer = await generateChartImage();
 
@@ -805,41 +871,13 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="dashboard-container animate-fade-in">
-      {/* Header */}
-      <header className="dashboard-header glass-panel">
-        <div className="header-content container mx-auto px-4">
-          <div className="brand">
-            <span className="logo-icon">✨</span>
-            <span className="brand-name">WorkTracker</span>
-          </div>
-
-          <nav className="main-nav">
-            <Link href="/dashboard" className="nav-link active">หน้าหลัก</Link>
-            <Link href="/products" className="nav-link">จัดการสินค้า</Link>
-            <Link href="/orders" className="nav-link">สั่งพิมพ์</Link>
-            <Link href="/stock" className="nav-link">สต็อคกระดาษ</Link>
-            <Link href="/logs" className="nav-link">ประวัติการใช้งาน</Link>
-
-          </nav>
-
-          <div className="user-section">
-            <span className="user-name">สวัสดี, {currentUser || 'ผู้ใช้'}</span>
-            <button onClick={handleLogout} className="btn btn-outline btn-sm">
-              ออกจากระบบ
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <main className="container mx-auto px-4 dashboard-main">
-        {/* Recent Print Orders */}
-        <section className="dashboard-content-grid delay-200 animate-fade-in mx-auto w-full max-w-5xl flex justify-center">
+    <div className="animate-fade-in">
+      <div className="flex flex-col gap-8 w-full max-w-6xl mx-auto">
 
           {/* Print Orders Section */}
           <div className="print-orders-section glass-panel w-full">
             <div className="section-header">
-              <h2>สรุปยอดสั่งพิมพ์ (รอบ 7 วันล่าสุด)</h2>
+              <h2>สรุปยอดสั่งพิมพ์ (สัปดาห์ปัจจุบัน)</h2>
               <div className="flex items-center gap-3">
                 <button
                   onClick={handleExportExcel}
@@ -956,6 +994,7 @@ export default function Dashboard() {
                         <th className="py-3 px-4 text-right text-red-500">ชิ้นเสีย</th>
                         <th className="py-3 px-4 text-right text-red-400">A3 เสีย</th>
                         <th className="py-3 px-4 text-right text-amber-600">ส่วนเกิน</th>
+                        <th className="py-3 px-4 text-center w-24">จัดการ</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -981,6 +1020,24 @@ export default function Dashboard() {
                           <td className="py-3 px-4 text-right font-bold text-amber-500">
                             {order.excessQty > 0 ? order.excessQty.toLocaleString() : <span className="text-slate-300">-</span>}
                           </td>
+                          <td className="py-3 px-4 text-center">
+                            <div className="flex items-center justify-center gap-2">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleOpenEdit(order); }}
+                                className="px-2.5 py-1.5 text-[11px] font-semibold text-sky-600 bg-sky-50 hover:bg-sky-500 hover:text-white rounded-lg transition-all shadow-sm border border-sky-200/50 flex items-center gap-1.5"
+                                title="แก้ไขรายการ"
+                              >
+                                <span>✏️</span> แก้ไข
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleDeleteEntry(order.id, order.lotName, order.sheetsNeeded); }}
+                                className="px-2.5 py-1.5 text-[11px] font-semibold text-red-500 bg-red-50 hover:bg-red-500 hover:text-white rounded-lg transition-all shadow-sm border border-red-200/50 flex items-center gap-1.5"
+                                title="ลบรายการ"
+                              >
+                                <span>🗑️</span> ลบ
+                              </button>
+                            </div>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -992,6 +1049,7 @@ export default function Dashboard() {
                         <td className="py-3 px-4 text-right text-red-600">{dailyOrders.reduce((s, o) => s + o.wasteQty, 0) > 0 ? `${dailyOrders.reduce((s, o) => s + o.wasteQty, 0).toLocaleString()} ชิ้น` : '-'}</td>
                         <td className="py-3 px-4 text-right text-red-500">{dailyOrders.reduce((s, o) => s + o.wasteA3, 0) > 0 ? `${dailyOrders.reduce((s, o) => s + o.wasteA3, 0).toLocaleString()} ใบ` : '-'}</td>
                         <td className="py-3 px-4 text-right text-amber-600">{dailyOrders.reduce((s, o) => s + o.excessQty, 0).toLocaleString()}</td>
+                        <td className="py-3 px-4"></td>
                       </tr>
                     </tfoot>
                   </table>
@@ -1003,7 +1061,7 @@ export default function Dashboard() {
             <div className="mb-8">
               <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
                 <span className="text-2xl">📊</span> สรุปยอดรายสัปดาห์แยกหน่วยงาน
-                <span className="text-sm font-normal text-slate-500">(7 วันล่าสุด)</span>
+                <span className="text-sm font-normal text-slate-500">(สัปดาห์ปัจจุบัน)</span>
               </h3>
               {Object.keys(weeklySummary.byDept).length > 0 ? (
                 <div className="overflow-x-auto rounded-xl border border-slate-200/60 bg-white/70 backdrop-blur-md shadow-sm">
@@ -1062,7 +1120,7 @@ export default function Dashboard() {
               {Object.keys(weeklySummary.byPaperType).length > 0 && (
                 <div className="mt-4">
                   <h4 className="text-sm font-bold text-slate-700 mb-2 flex items-center gap-1.5">
-                    <span>📃</span> แยกตามประเภทกระดาษ (7 วัน)
+                    <span>📃</span> แยกตามประเภทกระดาษ (สัปดาห์ปัจจุบัน)
                   </h4>
                   <div className="overflow-x-auto rounded-xl border border-slate-200/60 bg-white/70 backdrop-blur-md shadow-sm">
                     <table className="w-full text-sm text-left">
@@ -1087,6 +1145,46 @@ export default function Dashboard() {
                     </table>
                   </div>
                 </div>
+              )}
+            </div>
+
+            {/* === Daily Paper History (Week History) === */}
+            <div className="mb-8">
+              <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                <span className="text-2xl">🗓️</span> สรุปยอดใช้กระดาษรายวัน (A3)
+                <span className="text-sm font-normal text-slate-500">(สัปดาห์ปัจจุบัน)</span>
+              </h3>
+              {dailyPaperHistory.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {dailyPaperHistory.map((day) => (
+                    <div key={day.dateTag} className="overflow-hidden rounded-xl border border-slate-200/60 bg-white/70 backdrop-blur-md shadow-sm flex flex-col">
+                      <div className="bg-slate-50 border-b border-slate-200 p-3 flex justify-between items-center">
+                        <span className="font-bold text-slate-700 text-sm">{day.dateLabel}</span>
+                        <span className="text-sky-600 font-bold text-sm bg-sky-50 px-2 py-0.5 rounded-full border border-sky-100">{day.totalSheets.toLocaleString()} ใบ</span>
+                      </div>
+                      <div className="flex-1">
+                        <table className="w-full text-xs text-left">
+                          <thead>
+                            <tr className="bg-white/50 border-b border-slate-100 text-slate-400 text-[10px] uppercase tracking-wider font-semibold">
+                              <th className="py-2 px-4">ประเภทกระดาษ</th>
+                              <th className="py-2 px-4 text-right">จำนวน (ใบ)</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100/50">
+                            {day.types.map((t) => (
+                              <tr key={t.name} className="hover:bg-slate-50/50 transition-colors">
+                                <td className="py-2 px-4 text-slate-700 font-medium">{t.name}</td>
+                                <td className="py-2 px-4 text-right font-bold text-slate-800">{t.qty.toLocaleString()} ใบ</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-6 text-slate-400 text-sm bg-white/50 rounded-xl border border-slate-200/40">ยังไม่มีประวัติการใช้กระดาษในสัปดาห์นี้</div>
               )}
             </div>
 
@@ -1169,10 +1267,10 @@ export default function Dashboard() {
                                 </tr>
                                 {isExpanded && (
                                   <tr>
-                                    <td colSpan={7} className="p-0 border-b border-transparent">
+                                    <td colSpan={8} className="p-0 border-b border-transparent">
                                       <div className="bg-slate-50/80 px-8 py-5 shadow-inner">
                                         <div className="flex items-center justify-between mb-3 border-b border-slate-200 pb-2">
-                                          <h4 className="text-sm font-bold text-slate-700">รายการย่อย <span className="font-normal text-slate-500">(สร้างหรือแก้ไข)</span></h4>
+                                          <h4 className="text-sm font-bold text-slate-700">รายการย่อย</h4>
                                         </div>
                                         <div className="overflow-x-auto">
                                           <table className="w-full text-sm text-left">
@@ -1183,7 +1281,7 @@ export default function Dashboard() {
                                                 <th className="py-2 px-3 text-right">A3 ใช้รวม</th>
                                                 <th className="py-2 px-3 text-right">ของเสีย</th>
                                                 <th className="py-2 px-3">หมายเหตุ</th>
-                                                <th className="py-2 px-3 text-right">จัดการ</th>
+                                                <th className="py-2 px-3 text-center w-24">จัดการ</th>
                                               </tr>
                                             </thead>
                                             <tbody className="divide-y divide-slate-200/60">
@@ -1208,13 +1306,21 @@ export default function Dashboard() {
                                                     {entry.waste_qty_remark && <div className="truncate text-slate-600">• {entry.waste_qty_remark} (ชิ้น)</div>}
                                                     {entry.waste_a3_remark && <div className="truncate text-slate-600">• {entry.waste_a3_remark} (A3)</div>}
                                                   </td>
-                                                  <td className="py-3 px-3 text-right">
-                                                    <div className="flex items-center justify-end gap-3">
-                                                      <button onClick={() => handleOpenEdit(entry)} className="inline-flex items-center gap-2 text-sky-600 hover:text-white hover:bg-sky-500 transition-all text-sm font-semibold px-4 py-2.5 bg-sky-50 border border-sky-200 rounded-lg shadow-sm hover:border-sky-500 hover:shadow-md">
-                                                        <span className="text-base">✏️</span> แก้ไข
+                                                  <td className="py-2.5 px-3 text-center">
+                                                    <div className="flex items-center justify-center gap-2">
+                                                      <button
+                                                        onClick={(e) => { e.stopPropagation(); handleOpenEdit(entry); }}
+                                                        className="px-2 py-1 text-[11px] font-medium text-sky-600 bg-sky-50 hover:bg-sky-500 hover:text-white rounded-md transition-all shadow-sm border border-sky-200/30 flex items-center gap-1"
+                                                        title="แก้ไขรายการ"
+                                                      >
+                                                        <span>✏️</span> แก้ไข
                                                       </button>
-                                                      <button onClick={() => handleDeleteEntry(entry.id, entry.date)} className="inline-flex items-center gap-2 text-red-600 hover:text-white hover:bg-red-500 transition-all text-sm font-semibold px-4 py-2.5 bg-red-50 border border-red-200 rounded-lg shadow-sm hover:border-red-500 hover:shadow-md">
-                                                        <span className="text-base">🗑️</span> ลบ
+                                                      <button
+                                                        onClick={(e) => { e.stopPropagation(); handleDeleteEntry(entry.id, entry.lot_name, entry.sheets_needed); }}
+                                                        className="px-2 py-1 text-[11px] font-medium text-red-500 bg-red-50 hover:bg-red-500 hover:text-white rounded-md transition-all shadow-sm border border-red-200/30 flex items-center gap-1"
+                                                        title="ลบรายการ"
+                                                      >
+                                                        <span>🗑️</span> ลบ
                                                       </button>
                                                     </div>
                                                   </td>
@@ -1242,175 +1348,10 @@ export default function Dashboard() {
                   ยังไม่มีคำสั่งพิมพ์ในระบบ <br />ไปที่เมนูสั่งพิมพ์เพื่อเริ่มการคำนวณ
                 </div>
               )}
-              {/* Edit Modal */}
-              {editingEntry && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-                  <div className="glass-panel w-full max-w-lg p-6 relative">
-                    <button
-                      onClick={() => setEditingEntry(null)}
-                      className="absolute top-4 right-4 text-slate-400 hover:text-white text-xl p-1"
-                    >
-                      ✕
-                    </button>
-                    <h2 className="text-xl font-bold mb-4 border-b border-white/10 pb-2">แก้ไขรายการสั่งพิมพ์</h2>
 
-                    <form onSubmit={submitEdit} className="space-y-4">
-                      {/* Live preview of recalculated values */}
-                      {(() => {
-                        const selectedProduct = products.find(p => p.id === editFormData.productId);
-                        const ratio = selectedProduct ? selectedProduct.qtyPerA3 : (editingEntry?.products?.qty_per_a3 || 1);
-
-                        const hasRatio = ratio && ratio > 0;
-                        const effectiveRatio = hasRatio ? ratio : 1;
-                        const numTarget = parseInt(editFormData.targetQty) || 0;
-                        const numWaste = parseInt(editFormData.wasteQty) || 0;
-                        const wasteA3 = parseInt(editFormData.wasteA3) || 0;
-                        // Productive sheets (piece count)
-                        const baseSheetsForTarget = Math.ceil(numTarget / effectiveRatio);
-                        const naturalExcess = (baseSheetsForTarget * effectiveRatio) - numTarget;
-                        const extraForWaste = numWaste > naturalExcess ? Math.ceil((numWaste - naturalExcess) / effectiveRatio) : 0;
-                        const productiveSheets = baseSheetsForTarget + extraForWaste;
-                        // Total sheets including wasted A3 (for stock)
-                        const newSheets = productiveSheets + wasteA3;
-                        const oldSheets = editingEntry?.sheets_needed || 0;
-                        const excessQty = Math.max(0, (productiveSheets * effectiveRatio) - numTarget - numWaste);
-                        const diff = newSheets - oldSheets;
-                        return (
-                          <div className="rounded-lg border border-slate-600 overflow-hidden text-sm">
-                            {/* Product info bar */}
-                            <div className="bg-slate-700/80 px-4 py-2 flex items-center justify-between">
-                              <span className="text-slate-300 font-medium truncate max-w-[200px]">
-                                📦 {selectedProduct?.name || editingEntry?.products?.name || 'ไม่ทราบสินค้า'}
-                              </span>
-                              {hasRatio ? (
-                                <span className="text-xs bg-sky-500/20 text-sky-300 border border-sky-500/30 px-2 py-0.5 rounded-full flex-shrink-0">
-                                  อัตราส่วน: {ratio} ชิ้น / A3
-                                </span>
-                              ) : (
-                                <span className="text-xs bg-red-500/20 text-red-300 border border-red-500/30 px-2 py-0.5 rounded-full flex-shrink-0">
-                                  ⚠️ ไม่พบอัตราส่วน
-                                </span>
-                              )}
-                            </div>
-                            {/* Calculation preview */}
-                            <div className="bg-slate-800/60 px-4 py-3 flex flex-wrap gap-x-5 gap-y-2">
-                              <div>
-                                <span className="text-slate-400">เป้าหมายเดิม: </span>
-                                <span className="font-bold text-white">{editingEntry?.target_qty} ชิ้น</span>
-                              </div>
-                              <div>
-                                <span className="text-slate-400">A3 เดิม: </span>
-                                <span className="font-bold text-sky-400">{oldSheets} ใบ</span>
-                              </div>
-                              <div className="border-l border-slate-600 pl-5">
-                                <span className="text-slate-400">A3 ใหม่: </span>
-                                <span className="font-bold text-emerald-400">{newSheets} ใบ</span>
-                              </div>
-                              <div>
-                                <span className="text-slate-400">ส่วนเกิน: </span>
-                                <span className="font-bold text-amber-400">{excessQty} ชิ้น</span>
-                              </div>
-                              {diff !== 0 && (
-                                <div className="w-full border-t border-slate-700 pt-2 mt-1">
-                                  <span className="text-slate-400">ปรับสต็อคกระดาษ: </span>
-                                  <span className={`font-bold ${diff > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
-                                    {diff > 0 ? `ตัดออก ${diff} ใบ` : `คืนกลับ ${Math.abs(diff)} ใบ`}
-                                  </span>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })()}
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="form-group">
-                          <label className="form-label text-sm">ชื่อสินค้า</label>
-                          <select
-                            className="input-field text-sm p-2 cursor-pointer bg-slate-800"
-                            value={editFormData.productId}
-                            onChange={(e) => setEditFormData({ ...editFormData, productId: e.target.value })}
-                            required
-                          >
-                            {products.map(p => (
-                              <option key={p.id} value={p.id}>{p.name}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="form-group">
-                          <label className="form-label text-sm">เลขลอต</label>
-                          <input
-                            type="text"
-                            className="input-field text-sm p-2"
-                            placeholder="เช่น LOT67-001"
-                            value={editFormData.lotName}
-                            onChange={(e) => setEditFormData({ ...editFormData, lotName: e.target.value })}
-                            required
-                          />
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="form-group">
-                          <label className="form-label text-sm">หน่วยงาน</label>
-                          <select
-                            className="input-field text-sm p-2 cursor-pointer bg-slate-800"
-                            value={editFormData.department}
-                            onChange={(e) => setEditFormData({ ...editFormData, department: e.target.value })}
-                          >
-                            <option value="ZT">ZT</option>
-                            <option value="13 ไร่">13 ไร่</option>
-                            <option value="หน่วยงานอื่นๆ">หน่วยงานอื่นๆ</option>
-                          </select>
-                        </div>
-                        <div className="form-group">
-                          <label className="form-label text-sm">เป้าหมาย (ชิ้น)</label>
-                          <input
-                            type="number"
-                            className="input-field text-sm p-2"
-                            value={editFormData.targetQty}
-                            onChange={(e) => setEditFormData({ ...editFormData, targetQty: e.target.value })}
-                            required
-                          />
-                        </div>
-                      </div>
-
-                      <div className="p-4 border border-red-500/20 rounded-lg bg-red-500/5 space-y-3">
-                        <h4 className="text-sm font-semibold text-red-400">ชิ้นงานเสีย</h4>
-                        <div className="grid grid-cols-3 gap-3">
-                          <div className="form-group col-span-1">
-                            <label className="form-label text-xs">จำนวน (ชิ้น)</label>
-                            <input type="number" className="input-field text-sm p-1.5" value={editFormData.wasteQty} onChange={(e) => setEditFormData({ ...editFormData, wasteQty: e.target.value })} />
-                          </div>
-                          <div className="form-group col-span-2">
-                            <label className="form-label text-xs">หมายเหตุ</label>
-                            <input type="text" className="input-field text-sm p-1.5" value={editFormData.wasteQtyRemark} onChange={(e) => setEditFormData({ ...editFormData, wasteQtyRemark: e.target.value })} />
-                          </div>
-                        </div>
-                        <h4 className="text-sm font-semibold text-red-400 mt-2">กระดาษเสีย (A3)</h4>
-                        <div className="grid grid-cols-3 gap-3">
-                          <div className="form-group col-span-1">
-                            <label className="form-label text-xs">จำนวน (ใบ)</label>
-                            <input type="number" className="input-field text-sm p-1.5" value={editFormData.wasteA3} onChange={(e) => setEditFormData({ ...editFormData, wasteA3: e.target.value })} />
-                          </div>
-                          <div className="form-group col-span-2">
-                            <label className="form-label text-xs">หมายเหตุ</label>
-                            <input type="text" className="input-field text-sm p-1.5" value={editFormData.wasteA3Remark} onChange={(e) => setEditFormData({ ...editFormData, wasteA3Remark: e.target.value })} />
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex justify-end pt-4">
-                        <button type="submit" className="btn btn-primary px-6">บันทึกการแก้ไข</button>
-                      </div>
-                    </form>
-                  </div>
-                </div>
-              )}
             </div>
           </div>
-        </section>
-        <section className="mt-8 mb-12 flex justify-center">
+        <div className="mt-8 mb-12 flex justify-center">
           <button 
             onClick={handleResetWeekly}
             className="btn btn-outline border-red-500/50 text-red-400 hover:bg-red-500/10 flex items-center gap-2"
@@ -1419,332 +1360,173 @@ export default function Dashboard() {
             <span>⚠️</span>
             {isLoadingOrders ? "กำลังรีเซ็ต..." : "กดรีเซ็ตประจำสัปดาห์ (ลบประวัติ & ยกยอดสต็อค)"}
           </button>
-        </section>
-      </main>
+        </div>
 
-      <style jsx>{`
-        .dashboard-container {
-          min-height: 100vh;
-          padding-top: 80px;
-          padding-bottom: 40px;
-        }
+        {isEditModalOpen && editingEntry && typeof document !== 'undefined' && createPortal(
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto animate-fade-in">
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center sticky top-0 bg-white/95 backdrop-blur z-10">
+                <h3 className="text-xl font-bold text-slate-800">
+                  ✏️ แก้ไขรายการ (Lot: {editingEntry.lotName || editingEntry.lot_name})
+                </h3>
+                <button
+                  onClick={() => setIsEditModalOpen(false)}
+                  className="text-slate-400 hover:text-slate-600 p-2 rounded-full hover:bg-slate-100"
+                >
+                  ✕
+                </button>
+              </div>
 
-        .dashboard-header {
-          position: fixed;
-          top: 0;
-          left: 0;
-          width: 100%;
-          z-index: 100;
-          border-radius: 0;
-          border-left: none;
-          border-right: none;
-          border-top: none;
-        }
+              <form onSubmit={submitEdit} className="p-6">
+                {/* Product Selection Group */}
+                <div className="bg-slate-50 p-4 rounded-xl mb-6 border border-slate-100">
+                  <h4 className="text-sm font-bold text-slate-700 mb-3 uppercase tracking-wider">ข้อมูลสินค้า</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-600 mb-1">หน่วยงาน</label>
+                      <select
+                        className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+                        value={editFormData.department}
+                        onChange={(e) => setEditFormData({ ...editFormData, department: e.target.value })}
+                        required
+                      >
+                        <option value="" disabled>เลือกหน่วยงาน...</option>
+                        <option value="ZT">ZT</option>
+                        <option value="13 ไร่">13 ไร่</option>
+                        <option value="หน่วยงานอื่นๆ">หน่วยงานอื่นๆ</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-600 mb-1">LOT / รหัสสินค้า</label>
+                      <input
+                        type="text"
+                        className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-sky-500"
+                        value={editFormData.lotName}
+                        onChange={(e) => setEditFormData({ ...editFormData, lotName: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-600 mb-1">ประเภทกระดาษ</label>
+                      <select
+                        className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-sky-500"
+                        value={editFormData.paperType}
+                        onChange={(e) => setEditFormData({ ...editFormData, paperType: e.target.value })}
+                        required
+                      >
+                        {PAPER_TYPES.map(pt => <option key={pt} value={pt}>{pt}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-600 mb-1">สินค้า</label>
+                      <select
+                        className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-sky-500"
+                        value={editFormData.productId}
+                        onChange={(e) => setEditFormData({ ...editFormData, productId: e.target.value })}
+                        required
+                      >
+                        <option value="" disabled>เลือกสินค้า...</option>
+                        {products.map(p => (
+                          <option key={p.id} value={p.id}>{p.name} ({p.qtyPerA3} ชิ้น/A3)</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-sm font-medium text-slate-600 mb-1">เป้าหมายที่ต้องการ (ชิ้น)</label>
+                      <input
+                        type="number"
+                        className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-sky-500 text-lg font-bold"
+                        value={editFormData.targetQty}
+                        onChange={(e) => setEditFormData({ ...editFormData, targetQty: e.target.value })}
+                        required min="1"
+                      />
+                    </div>
+                  </div>
+                </div>
 
-        .header-content {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          height: 70px;
-        }
+                {/* Waste Group */}
+                <div className="bg-red-50/50 p-4 rounded-xl mb-6 border border-red-100">
+                  <h4 className="text-sm font-bold text-red-600 mb-3 uppercase tracking-wider">บันทึกของเสีย</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-600 mb-1">ชิ้นเสีย (ชิ้น)</label>
+                      <input
+                        type="number"
+                        className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-red-500"
+                        value={editFormData.wasteQty}
+                        onChange={(e) => setEditFormData({ ...editFormData, wasteQty: e.target.value })}
+                        min="0"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-600 mb-1">หมายเหตุ (ชิ้นเสีย)</label>
+                      <input
+                        type="text"
+                        className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-red-500"
+                        value={editFormData.wasteQtyRemark}
+                        onChange={(e) => setEditFormData({ ...editFormData, wasteQtyRemark: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-600 mb-1">A3 เสีย (ใบ)</label>
+                      <input
+                        type="number"
+                        className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-red-500"
+                        value={editFormData.wasteA3}
+                        onChange={(e) => setEditFormData({ ...editFormData, wasteA3: e.target.value })}
+                        min="0"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-600 mb-1">หมายเหตุ (A3 เสีย)</label>
+                      <input
+                        type="text"
+                        className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-red-500"
+                        value={editFormData.wasteA3Remark}
+                        onChange={(e) => setEditFormData({ ...editFormData, wasteA3Remark: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                </div>
 
-        .brand {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
+                {/* Live Output Preview */}
+                {editCalculationPreview && (
+                  <div className="bg-sky-50 p-4 rounded-xl mb-6 border border-sky-100 flex justify-between items-center">
+                    <div>
+                      <div className="text-sm text-slate-500">A3 ที่ต้องใช้ <strong className="text-sky-600 text-lg ml-1">{editCalculationPreview.sheetsNeeded} ใบ</strong></div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-sm text-slate-500">ผลผลิตสุทธิ <strong className="text-emerald-600 text-lg ml-1">{editCalculationPreview.totalPrinted} ชิ้น</strong></div>
+                      {editCalculationPreview.excessQty > 0 && <div className="text-xs text-amber-500">มีส่วนเกิน +{editCalculationPreview.excessQty}</div>}
+                    </div>
+                  </div>
+                )}
 
-        .logo-icon {
-          font-size: 1.5rem;
-        }
+                <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setIsEditModalOpen(false)}
+                    className="px-6 py-2.5 rounded-lg font-medium text-slate-600 hover:bg-slate-100 transition-colors"
+                    disabled={isSubmittingEdit}
+                  >
+                    ยกเลิก
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-6 py-2.5 rounded-lg font-bold text-white bg-sky-500 hover:bg-sky-600 transition-colors disabled:opacity-50 flex items-center gap-2"
+                    disabled={isSubmittingEdit}
+                  >
+                    {isSubmittingEdit && <span className="animate-spin text-lg">↻</span>}
+                    บันทึกการแก้ไข
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>,
+          document.body
+        )}
 
-        .brand-name {
-          font-weight: 700;
-          font-size: 1.1rem;
-          color: var(--text-main);
-        }
-
-        .main-nav {
-          display: flex;
-          gap: 20px;
-          margin: 0 auto;
-        }
-
-        .nav-link {
-          font-size: 0.95rem;
-          font-weight: 500;
-          color: var(--text-muted);
-          transition: color var(--transition-base);
-          position: relative;
-        }
-
-        .nav-link:hover, .nav-link.active {
-          color: var(--text-main);
-        }
-
-        .nav-link.active::after {
-          content: "";
-          position: absolute;
-          bottom: -4px;
-          left: 0;
-          width: 100%;
-          height: 2px;
-          background: var(--accent-primary);
-          border-radius: 2px;
-        }
-
-        .user-section {
-          display: flex;
-          align-items: center;
-          gap: 16px;
-        }
-
-        .user-name {
-          font-size: 0.9rem;
-          color: var(--text-muted);
-          display: none;
-        }
-
-        @media (min-width: 640px) {
-          .user-name { display: block; }
-        }
-
-        .btn-sm {
-          padding: 8px 16px;
-          font-size: 0.8rem;
-        }
-
-        .dashboard-main {
-          display: grid;
-          gap: 24px;
-          grid-template-columns: 1fr;
-        }
-
-        @media (min-width: 992px) {
-          .dashboard-main {
-            grid-template-columns: 1fr;
-            align-items: start;
-          }
-        }
-
-        .dashboard-content-grid {
-          display: flex;
-          justify-content: center;
-          gap: 24px;
-          margin-top: 32px;
-        }
-
-        @media (min-width: 992px) {
-          .dashboard-content-grid {
-            grid-template-columns: 1fr 1fr;
-          }
-        }
-
-        section h2, .section-header h2 {
-          font-size: 1.25rem;
-          font-weight: 600;
-          color: var(--text-main);
-          margin-bottom: 0;
-        }
-
-        .log-form-section {
-          padding: 32px;
-          margin-bottom: 24px;
-        }
-
-        .recent-logs-section, .print-orders-section {
-          padding: 32px;
-        }
-
-        .form-row {
-          display: flex;
-          flex-direction: column;
-          gap: 16px;
-        }
-
-        @media (min-width: 640px) {
-          .form-row {
-            flex-direction: row;
-          }
-        }
-
-        .flex-1 { flex: 1; }
-        .flex-2 { flex: 2; }
-
-        .textarea {
-          resize: vertical;
-          min-height: 100px;
-        }
-
-        .section-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: baseline;
-          margin-bottom: 24px;
-        }
-
-        .total-hours {
-          font-size: 1.2rem;
-          font-weight: 700;
-        }
-
-        .logs-list {
-          display: flex;
-          flex-direction: column;
-          gap: 16px;
-        }
-
-        .log-card {
-          display: flex;
-          align-items: stretch;
-          gap: 16px;
-          background: rgba(0,0,0,0.2);
-          border: 1px solid var(--surface-border);
-          padding: 16px;
-          border-radius: var(--radius-md);
-          transition: transform var(--transition-base), background var(--transition-base);
-        }
-
-        .log-card:hover {
-          transform: translateX(4px);
-          background: rgba(0,0,0,0.3);
-          border-color: rgba(255,255,255,0.15);
-        }
-
-        .log-date-badge {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          min-width: 60px;
-          background: rgba(255,255,255,0.05);
-          border-radius: var(--radius-sm);
-          padding: 8px;
-        }
-
-        .date-month {
-          font-size: 0.75rem;
-          text-transform: uppercase;
-          color: var(--accent-primary);
-          font-weight: 600;
-        }
-
-        .date-day {
-          font-size: 1.25rem;
-          font-weight: 700;
-        }
-
-        .log-details {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          justify-content: center;
-        }
-
-        .log-title {
-          font-size: 1rem;
-          font-weight: 500;
-          color: var(--text-main);
-          margin-bottom: 4px;
-        }
-
-        .log-desc {
-          font-size: 0.85rem;
-          color: var(--text-muted);
-          line-height: 1.4;
-        }
-
-        .log-hours {
-          display: flex;
-          align-items: center;
-          font-size: 0.85rem;
-          color: var(--text-muted);
-          font-weight: 500;
-          min-width: 65px;
-          justify-content: flex-end;
-        }
-
-        .log-hours span {
-          font-size: 1.25rem;
-          color: var(--text-main);
-          margin-right: 4px;
-          font-weight: 600;
-        }
-
-        /* Dashboard Orders Card Styles */
-        .order-summary-card {
-          background: rgba(0,0,0,0.2);
-          border: 1px solid var(--surface-border);
-          padding: 16px;
-          border-radius: var(--radius-md);
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-        }
-
-        .order-summary-header {
-          display: flex;
-          justify-content: space-between;
-          border-bottom: 1px solid rgba(255,255,255,0.05);
-          padding-bottom: 8px;
-        }
-
-        .product-title {
-          font-size: 1.05rem;
-          font-weight: 600;
-          color: var(--text-main);
-        }
-
-        .stats-row {
-          display: flex;
-          gap: 8px;
-          flex-wrap: wrap;
-        }
-
-        .stat-pill {
-          background: rgba(255,255,255,0.05);
-          padding: 4px 10px;
-          border-radius: var(--radius-sm);
-          font-size: 0.8rem;
-          display: flex;
-          align-items: center;
-          gap: 6px;
-        }
-
-        .stat-pill .label { color: var(--text-muted); }
-        .stat-pill .val { font-weight: 600; }
-        .bg-blue-subtle { background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.2); }
-        .bg-amber-subtle { background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2); }
-        .text-accent-primary { color: var(--accent-primary) !important; }
-        .text-accent-secondary { color: var(--accent-secondary) !important; }
-        .text-warning { color: #f59e0b !important; }
-
-        .waste-alert-mini {
-          background: rgba(239, 68, 68, 0.1);
-          border: 1px solid rgba(239, 68, 68, 0.2);
-          border-radius: var(--radius-sm);
-          padding: 8px 12px;
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-        }
-
-        .waste-line {
-          font-size: 0.8rem;
-          color: var(--text-main);
-        }
-
-        .waste-label {
-          color: #ef4444;
-          font-weight: 500;
-        }
-
-        .waste-remark {
-          color: var(--text-muted);
-          margin-left: 4px;
-          font-style: italic;
-        }
-      `}</style>
+      </div>
     </div>
   );
 }

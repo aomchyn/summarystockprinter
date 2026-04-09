@@ -300,35 +300,10 @@ export default function PrintOrders() {
   };
 
   return (
-    <div className="dashboard-container animate-fade-in">
-      {/* Header */}
-      <header className="dashboard-header glass-panel">
-        <div className="header-content container mx-auto px-4">
-          <div className="brand">
-            <span className="logo-icon">🖨️</span>
-            <span className="brand-name">WorkTracker</span>
-          </div>
-
-          <nav className="main-nav">
-            <Link href="/dashboard" className="nav-link">หน้าหลัก</Link>
-            <Link href="/products" className="nav-link">จัดการสินค้า</Link>
-            <Link href="/orders" className="nav-link active">สั่งพิมพ์</Link>
-            <Link href="/stock" className="nav-link">สต็อคกระดาษ</Link>
-            <Link href="/logs" className="nav-link">ประวัติการใช้งาน</Link>
-          </nav>
-
-          <div className="user-section">
-            <span className="user-name">สวัสดี, {currentUser || 'ผู้ใช้'}</span>
-            <button onClick={handleLogout} className="btn btn-outline btn-sm">
-              ออกจากระบบ
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <main className="container mx-auto px-4 dashboard-main">
+    <div className="animate-fade-in">
+      <div className="w-full max-w-4xl mx-auto flex flex-col gap-8">
         {/* Print Order Form */}
-        <section className="form-section glass-panel delay-100 animate-fade-in">
+        <section className="glass-panel p-6 sm:p-8 delay-100 animate-fade-in">
           <h2>คำนวณการพิมพ์สินค้า</h2>
           <form onSubmit={handleSubmit} className="product-form">
             <div className="form-row">
@@ -494,20 +469,20 @@ export default function PrintOrders() {
 
             {/* Live Calculation Preview */}
             {calculationPreview && (
-              <div className="calculation-preview delay-100 animate-fade-in">
-                <h3>ผลการคำนวณ (พรีวิว)</h3>
-                <div className="preview-grid">
-                  <div className="preview-stat">
-                    <span className="stat-label">กระดาษ A3 ที่ต้องใช้</span>
-                    <span className="stat-value highlight">{calculationPreview.sheetsNeeded} <small>ใบ</small></span>
+              <div className="bg-sky-50 border border-sky-200 rounded-lg p-6 my-6 delay-100 animate-fade-in">
+                <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-widest mb-4">ผลการคำนวณ (พรีวิว)</h3>
+                <div className="flex flex-col sm:flex-row justify-between gap-4">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-sm text-slate-500">กระดาษ A3 ที่ต้องใช้</span>
+                    <span className="text-3xl font-bold text-sky-600">{calculationPreview.sheetsNeeded} <small className="text-base font-normal text-slate-500">ใบ</small></span>
                   </div>
-                  <div className="preview-stat">
-                    <span className="stat-label">จำนวนที่จะได้จริงทั้งหมด</span>
-                    <span className="stat-value">{calculationPreview.totalPrinted} <small>ชิ้น</small></span>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-sm text-slate-500">จำนวนที่จะได้จริงทั้งหมด</span>
+                    <span className="text-3xl font-bold text-slate-800">{calculationPreview.totalPrinted} <small className="text-base font-normal text-slate-500">ชิ้น</small></span>
                   </div>
-                  <div className="preview-stat">
-                    <span className="stat-label">จำนวนเศษที่ผลิตเกิน</span>
-                    <span className="stat-value warning">{calculationPreview.excessQty} <small>ชิ้น</small></span>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-sm text-slate-500">จำนวนเศษที่ผลิตเกิน</span>
+                    <span className="text-3xl font-bold text-amber-500">{calculationPreview.excessQty} <small className="text-base font-normal text-slate-500">ชิ้น</small></span>
                   </div>
                 </div>
               </div>
@@ -519,261 +494,7 @@ export default function PrintOrders() {
           </form>
         </section>
 
-      </main>
-
-      <style jsx>{`
-        .dashboard-container {
-          min-height: 100vh;
-          padding-top: 80px;
-          padding-bottom: 40px;
-        }
-
-        .dashboard-header {
-          position: fixed;
-          top: 0;
-          left: 0;
-          width: 100%;
-          z-index: 100;
-          border-radius: 0;
-          border-left: none;
-          border-right: none;
-          border-top: none;
-        }
-
-        .header-content {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          height: 70px;
-        }
-
-        .brand {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-
-        .logo-icon { font-size: 1.5rem; }
-        .brand-name {
-          font-weight: 700;
-          font-size: 1.1rem;
-          color: var(--text-main);
-        }
-
-        .main-nav {
-          display: flex;
-          gap: 20px;
-          margin: 0 auto;
-        }
-
-        .nav-link {
-          font-size: 0.95rem;
-          font-weight: 500;
-          color: var(--text-muted);
-          transition: color var(--transition-base);
-          position: relative;
-        }
-
-        .nav-link:hover, .nav-link.active {
-          color: var(--text-main);
-        }
-
-        .nav-link.active::after {
-          content: "";
-          position: absolute;
-          bottom: -4px;
-          left: 0;
-          width: 100%;
-          height: 2px;
-          background: var(--accent-primary);
-          border-radius: 2px;
-        }
-
-        .user-section {
-          display: flex;
-          align-items: center;
-          gap: 16px;
-        }
-
-        .user-name {
-          font-size: 0.9rem;
-          color: var(--text-muted);
-          display: none;
-        }
-
-        @media (min-width: 640px) {
-          .user-name { display: block; }
-        }
-
-        .dashboard-main {
-          display: grid;
-          gap: 24px;
-          max-width: 900px;
-          margin: 0 auto;
-        }
-
-        section h2 {
-          font-size: 1.25rem;
-          font-weight: 600;
-          margin-bottom: 24px;
-          color: var(--text-main);
-        }
-
-        .form-section, .list-section { padding: 32px; }
-
-        .form-row {
-          display: flex;
-          flex-direction: column;
-          gap: 16px;
-          margin-bottom: 16px;
-        }
-
-        @media (min-width: 640px) {
-          .form-row { flex-direction: row; }
-        }
-
-        .flex-1 { flex: 1; }
-        .flex-2 { flex: 2; }
-
-        .is-disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
-        }
-
-        /* Preview Box */
-        .calculation-preview {
-          background: rgba(59, 130, 246, 0.05); /* very soft blue */
-          border: 1px solid rgba(59, 130, 246, 0.2);
-          border-radius: var(--radius-sm);
-          padding: 24px;
-          margin: 24px 0;
-        }
-
-        .calculation-preview h3 {
-          font-size: 1rem;
-          font-weight: 500;
-          color: var(--text-muted);
-          margin-bottom: 16px;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-        }
-
-        .preview-grid {
-          display: flex;
-          flex-direction: column;
-          gap: 16px;
-        }
-
-        @media (min-width: 640px) {
-          .preview-grid {
-             flex-direction: row;
-             justify-content: space-between;
-          }
-        }
-
-        .preview-stat {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-        }
-
-        .stat-label {
-          font-size: 0.85rem;
-          color: var(--text-muted);
-        }
-
-        .stat-value {
-          font-size: 1.75rem;
-          font-weight: 700;
-          color: var(--text-main);
-        }
-
-        .stat-value small {
-          font-size: 1rem;
-          font-weight: 400;
-          color: var(--text-muted);
-        }
-
-        .stat-value.highlight { color: var(--accent-primary); }
-        .stat-value.warning { color: #f59e0b; } /* Amber Excess */
-
-
-        /* Orders List */
-        .order-list {
-          display: flex;
-          flex-direction: column;
-          gap: 16px;
-        }
-
-        .order-card {
-          background: rgba(0,0,0,0.2);
-          border: 1px solid var(--surface-border);
-          padding: 20px;
-          border-radius: var(--radius-md);
-          transition: transform var(--transition-base), background var(--transition-base);
-        }
-
-        .order-card:hover {
-          transform: translateY(-2px);
-          background: rgba(0,0,0,0.3);
-          border-color: rgba(255,255,255,0.15);
-        }
-
-        .order-header {
-          display: flex;
-          justify-content: space-between;
-          margin-bottom: 12px;
-          font-size: 0.85rem;
-          font-weight: 500;
-          border-bottom: 1px solid rgba(255,255,255,0.05);
-          padding-bottom: 8px;
-        }
-
-        .order-body {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-
-        .order-product-name {
-          font-size: 1.1rem;
-          font-weight: 600;
-          color: var(--text-main);
-        }
-
-        .order-details-grid {
-          display: flex;
-          align-items: center;
-          gap: 24px;
-          padding-top: 8px;
-        }
-
-        .detail-item {
-          display: flex;
-          flex-direction: column;
-        }
-
-        .detail-item .label {
-          font-size: 0.75rem;
-          color: var(--text-muted);
-          text-transform: uppercase;
-        }
-
-        .detail-item .value {
-          font-size: 1.25rem;
-          font-weight: 600;
-          color: var(--text-main);
-        }
-
-        .divider {
-          height: 32px;
-          width: 1px;
-          background: rgba(255,255,255,0.1);
-        }
-
-        .highlight-color { color: var(--accent-primary) !important; }
-        .warning-color { color: #f59e0b !important; }
-      `}</style>
+      </div>
     </div>
   );
 }

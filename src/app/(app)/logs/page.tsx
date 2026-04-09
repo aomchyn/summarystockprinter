@@ -97,11 +97,11 @@ export default function LogsPage() {
 
   const getActionColor = (action: string) => {
     switch (action) {
-      case 'CREATE': return 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30';
-      case 'UPDATE': return 'text-amber-400 bg-amber-500/10 border-amber-500/30';
-      case 'DELETE': return 'text-red-400 bg-red-500/10 border-red-500/30';
-      case 'EXPORT': return 'text-sky-400 bg-sky-500/10 border-sky-500/30';
-      default: return 'text-slate-400 bg-slate-500/10 border-slate-500/30';
+      case 'CREATE': return 'text-emerald-700 bg-emerald-50 border-emerald-200';
+      case 'UPDATE': return 'text-amber-700 bg-amber-50 border-amber-200';
+      case 'DELETE': return 'text-red-700 bg-red-50 border-red-200';
+      case 'EXPORT': return 'text-sky-700 bg-sky-50 border-sky-200';
+      default: return 'text-slate-700 bg-slate-50 border-slate-200';
     }
   };
 
@@ -122,45 +122,20 @@ export default function LogsPage() {
   });
 
   return (
-    <div className="dashboard-container animate-fade-in min-h-screen">
-      {/* Header */}
-      <header className="dashboard-header glass-panel sticky top-0 z-50">
-        <div className="header-content container mx-auto flex items-center justify-between h-16">
-          <div className="brand flex items-center gap-2">
-            <span className="logo-icon text-xl">📋</span>
-            <span className="brand-name font-bold">WorkTracker</span>
-          </div>
-
-          <nav className="main-nav flex gap-6 text-sm font-medium">
-            <Link href="/dashboard" className="nav-link">หน้าหลัก</Link>
-            <Link href="/products" className="nav-link">จัดการสินค้า</Link>
-            <Link href="/orders" className="nav-link">สั่งพิมพ์</Link>
-            <Link href="/stock" className="nav-link">สต็อคกระดาษ</Link>
-            <Link href="/logs" className="nav-link active text-accent-primary">ประวัติการใช้งาน</Link>
-          </nav>
-
-          <div className="user-section flex items-center gap-4">
-            <span className="user-name text-sm">สวัสดี, {currentUser || 'ผู้ใช้'}</span>
-            <button onClick={handleLogout} className="btn btn-outline btn-sm px-4 py-1.5 rounded-full border border-slate-600 text-slate-300 hover:bg-slate-800">
-              ออกจากระบบ
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <main className="container mx-auto px-4 py-8 dashboard-main">
-        <div className="page-title glass-panel mb-6 p-6 rounded-2xl border border-white/5 bg-slate-900/40">
-          <h1 className="text-2xl font-bold text-white">ประวัติการใช้งานระบบ (Audit Logs)</h1>
-          <p className="text-slate-400 mt-2 text-sm">บันทึกการทำรายการทั้งหมดในระบบ (แสดง 100 รายการล่าสุด)</p>
+    <div className="animate-fade-in">
+      <div className="w-full max-w-6xl mx-auto flex flex-col gap-6">
+        <div className="glass-panel p-6 text-center delay-100 animate-fade-in">
+          <h1 className="text-2xl font-bold text-slate-800 m-0">ประวัติการใช้งานระบบ (Audit Logs)</h1>
+          <p className="text-slate-500 mt-2">บันทึกการทำรายการทั้งหมดในระบบ (แสดง 100 รายการล่าสุด)</p>
         </div>
 
-        <div className="glass-panel p-6 rounded-2xl border border-white/5 bg-slate-900/40">
+        <div className="glass-panel p-6 rounded-xl border border-slate-200 bg-white">
             {/* Filters */}
             <div className="flex flex-wrap gap-4 mb-6">
-                <div className="form-group flex-1 min-w-[200px]">
-                    <label className="text-xs text-slate-400 mb-1 block">กรองตามส่วนงาน</label>
+                <div className="form-group flex-1 min-w-[200px] mb-0">
+                    <label className="text-sm font-semibold text-slate-600 mb-2 block">กรองตามส่วนงาน</label>
                     <select 
-                        className="w-full bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg p-2.5 focus:border-accent-primary outline-none cursor-pointer"
+                        className="input-field cursor-pointer"
                         value={filterModule}
                         onChange={(e) => setFilterModule(e.target.value)}
                     >
@@ -171,10 +146,10 @@ export default function LogsPage() {
                         <option value="dashboard">หน้ารวม (Dashboard)</option>
                     </select>
                 </div>
-                <div className="form-group flex-1 min-w-[200px]">
-                    <label className="text-xs text-slate-400 mb-1 block">กรองตามประเภทการกระทำ</label>
+                <div className="form-group flex-1 min-w-[200px] mb-0">
+                    <label className="text-sm font-semibold text-slate-600 mb-2 block">กรองตามประเภท</label>
                     <select 
-                        className="w-full bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg p-2.5 focus:border-accent-primary outline-none cursor-pointer"
+                        className="input-field cursor-pointer"
                         value={filterAction}
                         onChange={(e) => setFilterAction(e.target.value)}
                     >
@@ -188,49 +163,49 @@ export default function LogsPage() {
             </div>
 
           {/* Table */}
-          <div className="overflow-x-auto rounded-xl border border-slate-800">
-            <table className="w-full text-left text-sm whitespace-nowrap">
-              <thead className="bg-slate-800/80 text-slate-300">
+          <div className="table-container">
+            <table className="table-main">
+              <thead>
                 <tr>
-                  <th className="px-4 py-3 font-medium w-48">วัน-เวลา</th>
-                  <th className="px-4 py-3 font-medium w-48">ผู้ใช้งาน</th>
-                  <th className="px-4 py-3 font-medium w-32">การกระทำ</th>
-                  <th className="px-4 py-3 font-medium w-32">ส่วนงาน</th>
-                  <th className="px-4 py-3 font-medium">รายละเอียด</th>
+                  <th className="w-48">วัน-เวลา</th>
+                  <th className="w-48">ผู้ใช้งาน</th>
+                  <th className="w-32">การกระทำ</th>
+                  <th className="w-48">ส่วนงาน</th>
+                  <th>รายละเอียด</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/50">
+              <tbody>
                 {isLoading ? (
                   <tr>
-                    <td colSpan={5} className="px-4 py-12 text-center text-slate-500">
+                    <td colSpan={5} className="py-12 text-center text-slate-500">
                       กำลังโหลดประวัติการใช้งาน...
                     </td>
                   </tr>
                 ) : filteredLogs.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-4 py-12 text-center text-slate-500">
+                    <td colSpan={5} className="py-12 text-center text-slate-500">
                       ไม่พบประวัติการใช้งานที่ตรงกับเงื่อนไข
                     </td>
                   </tr>
                 ) : (
                   filteredLogs.map((log) => (
-                    <tr key={log.id} className="hover:bg-slate-800/30 transition-colors">
-                      <td className="px-4 py-3 text-slate-400 text-xs">
+                    <tr key={log.id}>
+                      <td className="text-slate-500">
                         {formatDate(log.created_at)}
                       </td>
-                      <td className="px-4 py-3 text-slate-300">
+                      <td className="font-medium text-slate-700">
                         {log.user_email?.split('@')[0] || 'Unknown'}
                       </td>
-                      <td className="px-4 py-3">
-                        <span className={`px-2 py-1 rounded border text-[10px] font-bold tracking-wider ${getActionColor(log.action)}`}>
+                      <td>
+                        <span className={`px-2.5 py-1 rounded-md border text-xs font-bold tracking-wider ${getActionColor(log.action)}`}>
                           {log.action}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-slate-400">
+                      <td className="text-slate-600 font-medium">
                         {getModuleLabel(log.module)}
                       </td>
-                      <td className="px-4 py-3 text-slate-200">
-                        <div className="font-medium">{log.description}</div>
+                      <td className="text-slate-800">
+                        {log.description}
                       </td>
                     </tr>
                   ))
@@ -239,7 +214,7 @@ export default function LogsPage() {
             </table>
           </div>
         </div>
-      </main>
+      </div>
     </div>
   );
 }

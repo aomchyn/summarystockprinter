@@ -187,47 +187,21 @@ export default function PaperStock() {
     });
 
     return (
-        <div className="stock-container animate-fade-in">
-            {/* Header matching other pages */}
-            <header className="dashboard-header glass-panel">
-                <div className="header-content container mx-auto px-4">
-                    <div className="brand">
-                        <span className="logo-icon">✨</span>
-                        <span className="brand-name">WorkTracker</span>
-                    </div>
-
-                    <nav className="main-nav">
-                        <Link href="/dashboard" className="nav-link">หน้าหลัก</Link>
-                        <Link href="/products" className="nav-link">จัดการสินค้า</Link>
-                        <Link href="/orders" className="nav-link">สั่งพิมพ์</Link>
-                        <Link href="/stock" className="nav-link active">สต็อคกระดาษ</Link>
-                        <Link href="/logs" className="nav-link">ประวัติการใช้งาน</Link>
-
-                    </nav>
-
-                    <div className="user-section">
-                        <span className="user-name">สวัสดี, {currentUser || 'ผู้ใช้'}</span>
-                        <button onClick={handleLogout} className="btn btn-outline btn-sm">
-
-                            ออกจากระบบ
-                        </button>
-                    </div>
-                </div>
-            </header>
-
-            <main className="container mx-auto px-4 stock-main">
-                <div className="page-title glass-panel delay-100 animate-fade-in">
-                    <h1>จัดการสต็อคกระดาษ A3</h1>
-                    <p className="text-muted mt-2">บันทึกรับเข้าและตรวจเช็คประวัติการเบิกจ่ายกระดาษทั้งหมด</p>
+        <div className="animate-fade-in">
+            <div className="w-full max-w-5xl mx-auto flex flex-col gap-6">
+                <div className="glass-panel p-6 text-center delay-100 animate-fade-in">
+                    <h1 className="text-2xl font-bold text-slate-800 m-0">จัดการสต็อคกระดาษ A3</h1>
+                    <p className="text-slate-500 mt-2">บันทึกรับเข้าและตรวจเช็คประวัติการเบิกจ่ายกระดาษทั้งหมด</p>
                 </div>
 
-                <div className="dashboard-content-grid delay-200 animate-fade-in mt-6">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 delay-200 animate-fade-in">
                     {/* Stock In Form */}
-                    <section className="glass-panel">
-                        <div className="section-header">
-                            <h2>รับเข้ากระดาษ (Stock In)</h2>
+                    <div className="flex flex-col gap-6 lg:col-span-1 border-0">
+                    <section className="glass-panel p-6">
+                        <div className="mb-6 border-b border-slate-100 pb-3">
+                            <h2 className="text-lg font-bold text-slate-800 m-0">รับเข้ากระดาษ (Stock In)</h2>
                         </div>
-                        <form onSubmit={handleSubmit} className="stock-form mt-4">
+                        <form onSubmit={handleSubmit} className="stock-form">
                             <div className="form-group mb-4">
                                 <label className="form-label">ประเภทกระดาษ</label>
                                 <select
@@ -240,7 +214,7 @@ export default function PaperStock() {
                                     ))}
                                 </select>
                             </div>
-                            <div className="form-group">
+                            <div className="form-group mb-4">
                                 <label className="form-label">จำนวน (แผ่น)</label>
                                 <input
                                     type="number"
@@ -252,7 +226,7 @@ export default function PaperStock() {
                                 />
                             </div>
 
-                            <div className="form-group mt-4">
+                            <div className="form-group mb-6">
                                 <label className="form-label">หมายเหตุ (ไม่บังคับ)</label>
                                 <input
                                     type="text"
@@ -263,33 +237,34 @@ export default function PaperStock() {
                                 />
                             </div>
 
-                            <button type="submit" className="btn btn-primary w-full mt-6" disabled={isSubmitting}>
+                            <button type="submit" className="btn btn-primary w-full" disabled={isSubmitting}>
                                 {isSubmitting ? "กำลังบันทึก..." : "บันทึกรับเข้าสต็อค"}
                             </button>
                         </form>
-
-                        {/* Realtime Stats Summary All at Once */}
-                        <div className="stock-stats mt-8 pt-6 border-t border-white/5">
-                            <div className="flex justify-between items-center mb-4">
-                                <h3 className="text-sm font-medium text-muted uppercase tracking-wider">สต็อคกระดาษคงเหลือ</h3>
-                            </div>
-                            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                                {balances.map((b) => (
-                                    <div key={b.type} className="stat-card bg-white/5 border border-white/10 rounded-xl p-3 text-center">
-                                        <span className="block text-xs text-muted mb-1 truncate">{b.type}</span>
-                                        <span className={`block text-xl font-bold ${b.balance < 50 ? 'text-orange-400' : 'text-emerald-400'}`}>
-                                            {b.balance}
-                                        </span>
-                                    </div>
-                                ))}
-                            </div>
+                    </section>
+                    
+                    {/* Realtime Stats Summary All at Once */}
+                    <section className="glass-panel p-6 bg-slate-800 text-white border-0">
+                        <div className="flex justify-between items-center mb-4 pb-3 border-b border-white/10">
+                            <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider m-0">สต็อคกระดาษคงเหลือ</h3>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                            {balances.map((b) => (
+                                <div key={b.type} className="stat-card bg-white/5 border border-white/10 rounded-xl p-3 text-center transition-colors hover:bg-white/10">
+                                    <span className="block text-xs text-slate-400 mb-1 truncate">{b.type}</span>
+                                    <span className={`block text-2xl font-bold ${b.balance < 50 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                                        {b.balance.toLocaleString()}
+                                    </span>
+                                </div>
+                            ))}
                         </div>
                     </section>
+                    </div>
 
                     {/* Transactions History */}
-                    <section className="glass-panel">
-                        <div className="section-header">
-                            <h2>ประวัติการทำรายการ</h2>
+                    <section className="glass-panel p-6 lg:col-span-2">
+                        <div className="mb-6 border-b border-slate-100 pb-3">
+                            <h2 className="text-lg font-bold text-slate-800 m-0">ประวัติการทำรายการ</h2>
                         </div>
 
                         <div className="transactions-list mt-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
@@ -341,121 +316,7 @@ export default function PaperStock() {
                         </div>
                     </section>
                 </div>
-            </main>
-
-            <style jsx>{`
-        .stock-container {
-          min-height: 100vh;
-          padding-top: 80px;
-          padding-bottom: 40px;
-        }
-
-        .dashboard-header {
-          position: fixed;
-          top: 0;
-          left: 0;
-          width: 100%;
-          z-index: 100;
-          border-radius: 0;
-          border-left: none;
-          border-right: none;
-          border-top: none;
-        }
-
-        .header-content {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          height: 64px;
-        }
-
-        .brand {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-        }
-
-        .brand-name {
-          font-weight: 700;
-          font-size: 1.25rem;
-          background: linear-gradient(to right, var(--text-primary), var(--text-secondary));
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-        }
-
-        .main-nav {
-          display: flex;
-          gap: 8px;
-        }
-
-        .nav-link {
-          padding: 8px 16px;
-          border-radius: var(--radius-sm);
-          color: var(--text-secondary);
-          text-decoration: none;
-          font-weight: 500;
-          font-size: 0.9rem;
-          transition: all 0.2s ease;
-        }
-
-        .nav-link:hover {
-          color: var(--text-primary);
-          background: rgba(255, 255, 255, 0.05);
-        }
-
-        .nav-link.active {
-          color: var(--accent-primary);
-          background: var(--bg-accent-subtle);
-        }
-
-        .user-section {
-          display: flex;
-          align-items: center;
-          gap: 16px;
-        }
-
-        .user-name {
-          font-size: 0.9rem;
-          color: var(--text-secondary);
-        }
-
-        .page-title {
-          padding: 24px 32px;
-          text-align: center;
-        }
-
-        .dashboard-content-grid {
-          display: grid;
-          grid-template-columns: 350px 1fr;
-          gap: 24px;
-        }
-
-        @media (max-width: 900px) {
-          .dashboard-content-grid {
-            grid-template-columns: 1fr;
-          }
-          
-          .main-nav {
-            display: none; /* Hide nav on mobile for this simple layout */
-          }
-        }
-        
-        /* Custom scrollbar for history list to look sleek */
-        .custom-scrollbar::-webkit-scrollbar {
-          width: 6px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-track {
-          background: rgba(0,0,0,0.02);
-          border-radius: 4px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: rgba(0,0,0,0.1);
-          border-radius: 4px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-          background: rgba(0,0,0,0.2);
-        }
-      `}</style>
+            </div>
         </div>
     );
 }

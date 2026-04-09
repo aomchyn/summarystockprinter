@@ -40,16 +40,16 @@ export default function Login() {
   };
 
   return (
-    <main className="login-container">
-      <div className="login-box glass-panel animate-fade-in">
-        <div className="login-header delay-100 animate-fade-in">
-          <div className="logo-icon">✨</div>
-          <h1 className="text-gradient">ยินดีต้อนรับกลับมา</h1>
-          <p className="text-muted text-sm mt-2">กรุณาเข้าสู่ระบบเพื่อบันทึกการทำงานของคุณ</p>
+    <main className="min-h-screen flex items-center justify-center p-6 bg-slate-50">
+      <div className="w-full max-w-md glass-panel p-8 sm:p-10 flex flex-col gap-8 animate-fade-in">
+        <div className="text-center delay-100 animate-fade-in">
+          <div className="text-5xl mb-4 bg-gradient-to-br from-sky-500 to-sky-700 inline-block text-transparent bg-clip-text">✨</div>
+          <h1 className="text-2xl font-bold text-slate-800 tracking-tight">ยินดีต้อนรับกลับมา</h1>
+          <p className="text-slate-500 text-sm mt-2">กรุณาเข้าสู่ระบบเพื่อบันทึกการทำงานของคุณ</p>
         </div>
 
-        <form onSubmit={handleLogin} className="login-form delay-200 animate-fade-in">
-          <div className="form-group">
+        <form onSubmit={handleLogin} className="flex flex-col gap-6 delay-200 animate-fade-in">
+          <div className="form-group mb-0">
             <label className="form-label" htmlFor="email">อีเมล (Email)</label>
             <input
               id="email"
@@ -61,7 +61,7 @@ export default function Login() {
             />
           </div>
 
-          <div className="form-group">
+          <div className="form-group mb-0">
             <label className="form-label" htmlFor="password">รหัสผ่าน (Password)</label>
             <input
               id="password"
@@ -73,72 +73,17 @@ export default function Login() {
             />
           </div>
 
-          {error && <div className="error-message animate-fade-in">{error}</div>}
+          {error && <div className="text-red-600 bg-red-50 border border-red-200 p-3 rounded-lg text-sm text-center animate-fade-in">{error}</div>}
 
           <button
             type="submit"
-            className="btn btn-primary w-full mt-4"
+            className="btn btn-primary w-full mt-2"
             disabled={loading}
           >
             {loading ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
           </button>
         </form>
       </div>
-
-      <style jsx>{`
-        .login-container {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          min-height: 100vh;
-          padding: 24px;
-        }
-
-        .login-box {
-          width: 100%;
-          max-width: 420px;
-          padding: 40px;
-          display: flex;
-          flex-direction: column;
-          gap: 32px;
-        }
-
-        .login-header {
-          text-align: center;
-        }
-
-        .logo-icon {
-          font-size: 2.5rem;
-          margin-bottom: 16px;
-          display: inline-block;
-          background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-        }
-
-        .login-header h1 {
-          font-size: 1.75rem;
-          font-weight: 600;
-          letter-spacing: -0.02em;
-        }
-
-        .error-message {
-          color: var(--error-color);
-          background: rgba(239, 68, 68, 0.1);
-          border: 1px solid rgba(239, 68, 68, 0.2);
-          padding: 12px;
-          border-radius: var(--radius-sm);
-          font-size: 0.875rem;
-          text-align: center;
-          margin-top: 12px;
-        }
-
-        @media (max-width: 480px) {
-          .login-box {
-            padding: 32px 24px;
-          }
-        }
-      `}</style>
     </main>
   );
 }

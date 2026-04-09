@@ -1,258 +1,68 @@
 @import "tailwindcss";
 
 :root {
-  /* Vibrant Light Gradients and Colors */
-  --bg-primary: #f0fdf4;
-  /* Bright minty/white background */
-  --bg-secondary: #ffffff;
-  --surface-color: rgba(255, 255, 255, 0.85);
-  /* Light glass */
-  --surface-border: rgba(0, 0, 0, 0.08);
-
-  --accent-primary: #0ea5e9;
-  /* Sky Blue */
-  --accent-secondary: #ec4899;
-  /* Vibrant Pink */
-  --accent-glow-cyan: rgba(14, 165, 233, 0.4);
-  --accent-glow-pink: rgba(236, 72, 153, 0.4);
-
-  --text-main: #0f172a;
-  /* Slate 900 */
-  --text-muted: #475569;
-  /* Slate 600 */
-  --text-placeholder: #94a3b8;
-
-  --error-color: #ef4444;
-  --success-color: #10b981;
-  --warning-color: #f59e0b;
-
-  /* Typography */
   --font-sans: var(--font-geist-sans), Inter, sans-serif;
-
-  /* Geometry */
-  --radius-sm: 8px;
-  --radius-md: 16px;
-  --radius-lg: 24px;
-  --radius-full: 9999px;
-
-  /* Transitions */
-  --transition-fast: 0.15s ease-out;
-  --transition-base: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-slow: 0.5s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 * {
   box-sizing: border-box;
-  margin: 0;
-  padding: 0;
 }
 
 body {
-  background-color: var(--bg-primary);
-  color: var(--text-main);
   font-family: var(--font-sans);
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  overflow-x: hidden;
-  position: relative;
+  background-color: #f8fafc; /* slate-50 */
+  color: #0f172a; /* slate-900 */
 }
 
-/* Background Animated Vibrant Gradient Mesh */
-body::before {
-  content: "";
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  background:
-    radial-gradient(ellipse at 15% 50%, rgba(14, 165, 233, 0.15), transparent 45%),
-    radial-gradient(ellipse at 85% 30%, rgba(236, 72, 153, 0.15), transparent 45%),
-    radial-gradient(ellipse at 50% 80%, rgba(245, 158, 11, 0.15), transparent 50%);
-  z-index: -1;
-  pointer-events: none;
-  animation: bg-pulse 10s ease-in-out infinite alternate;
-}
-
-@keyframes bg-pulse {
-  0% {
-    transform: scale(1);
-    opacity: 0.8;
-  }
-
-  100% {
-    transform: scale(1.05);
-    opacity: 1;
-  }
-}
-
-a {
-  color: inherit;
-  text-decoration: none;
-}
-
-button,
-input,
-textarea {
-  font-family: inherit;
-  border: none;
-  outline: none;
-}
-
-/* -------------------------------------
-   Core UI Components
--------------------------------------- */
-
-.container {
-  margin-left: auto;
-  margin-right: auto;
-  padding-left: 1rem;
-  padding-right: 1rem;
-}
-
-/* Glassmorphism Panel */
-.glass-panel {
-  background: var(--surface-color);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius-md);
-  box-shadow: 0 24px 40px rgba(0, 0, 0, 0.4);
-}
-
-/* Buttons */
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 12px 24px;
-  border-radius: var(--radius-sm);
-  font-weight: 500;
-  font-size: 0.95rem;
-  cursor: pointer;
-  transition: all var(--transition-base);
-  gap: 8px;
-}
-
-.btn-primary {
-  background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
-  color: #fff;
-  box-shadow: 0 4px 15px var(--accent-glow-cyan);
-  position: relative;
-  overflow: hidden;
-}
-
-.btn-primary::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 50%;
-  height: 100%;
-  background: linear-gradient(to right, transparent, rgba(255, 255, 255, 0.2), transparent);
-  transform: skewX(-20deg);
-  transition: all var(--transition-slow);
-}
-
-.btn-primary:hover:not(:disabled) {
-  opacity: 0.9;
-  transform: translateY(-2px);
-  box-shadow: 0 8px 25px var(--accent-glow-pink);
-}
-
-.btn-primary:hover::after {
-  left: 150%;
-}
-
-.btn-primary:active {
-  transform: translateY(0);
-}
-
-.btn-outline {
-  background: transparent;
-  border: 1px solid var(--surface-border);
-  color: var(--text-main);
-}
-
-.btn-outline:hover {
-  background: rgba(0, 0, 0, 0.05);
-  border-color: rgba(0, 0, 0, 0.15);
-}
-
-/* Accents */
-.text-accent-primary {
-  color: var(--accent-primary);
-}
-
-.text-accent-secondary {
-  color: var(--accent-secondary);
-}
-
-.bg-accent-subtle {
-  background-color: rgba(14, 165, 233, 0.08);
-}
-
-.bg-blue-subtle {
-  background-color: rgba(14, 165, 233, 0.05);
-}
-
-.bg-amber-subtle {
-  background-color: rgba(245, 158, 11, 0.1);
-}
-
-/* Forms */
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 20px;
-}
-
+/* Base Form Inputs (can be used directly or via Tailwind) */
 .form-label {
-  font-size: 0.85rem;
-  font-weight: 500;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  @apply block text-sm font-semibold text-slate-600 uppercase tracking-wider mb-2;
 }
 
 .input-field {
-  width: 100%;
-  padding: 14px 16px;
-  background: rgba(255, 255, 255, 0.6);
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius-sm);
-  color: var(--text-main);
-  font-size: 1rem;
-  transition: all var(--transition-base);
+  @apply w-full px-4 py-2.5 bg-white border border-slate-200 rounded-lg text-slate-800 transition-all focus:ring-2 focus:ring-sky-500/50 focus:border-sky-500 outline-none placeholder-slate-400;
 }
 
-.input-field::placeholder {
-  color: var(--text-placeholder);
+/* Base Buttons */
+.btn {
+  @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg font-semibold text-sm transition-all focus:ring-2 focus:ring-offset-1 outline-none text-center;
 }
 
-.input-field:focus {
-  border-color: var(--accent-primary);
-  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.15);
-  background: #ffffff;
+.btn-primary {
+  @apply bg-sky-600 text-white hover:bg-sky-700 shadow-sm focus:ring-sky-500;
+}
+
+.btn-success {
+  @apply bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm focus:ring-emerald-500;
+}
+
+.btn-danger {
+  @apply bg-red-600 text-white hover:bg-red-700 shadow-sm focus:ring-red-500;
+}
+
+.btn-outline {
+  @apply bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300 shadow-sm focus:ring-slate-400;
+}
+
+/* App panels */
+.glass-panel {
+  @apply bg-white rounded-xl shadow-sm border border-slate-200;
 }
 
 /* Animations */
 @keyframes fadeInSlideUp {
   from {
     opacity: 0;
-    transform: translateY(20px);
+    transform: translateY(10px);
   }
-
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: none;
   }
 }
 
 .animate-fade-in {
-  animation: fadeInSlideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: fadeInSlideUp 0.4s ease-out forwards;
 }
 
 .delay-100 {
@@ -265,50 +75,32 @@ textarea {
   opacity: 0;
 }
 
-.delay-300 {
-  animation-delay: 300ms;
-  opacity: 0;
+/* Custom Table Styles override */
+.table-container {
+  @apply overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm w-full;
 }
 
-/* Utilities */
-.text-gradient {
-  background: linear-gradient(135deg, var(--text-main) 0%, var(--text-muted) 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+.table-main {
+  @apply w-full text-sm text-left whitespace-nowrap;
 }
-
-.text-gradient-accent {
-  background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+.table-main thead tr {
+  @apply bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase tracking-wider font-bold;
 }
-
-.text-center {
-  text-align: center;
+.table-main th {
+  @apply px-6 py-4;
 }
-
-.text-sm {
-  font-size: 0.875rem;
+.table-main tbody tr {
+  @apply border-b border-slate-100 last:border-0 hover:bg-slate-50/70 transition-colors;
 }
-
-.mt-2 {
-  margin-top: 8px;
+.table-main td {
+  @apply px-6 py-4;
 }
-
-.mt-4 {
-  margin-top: 16px;
+/* Quick Layout Helpers */
+.form-group {
+  @apply flex flex-col gap-2 mb-5;
 }
-
-.mb-2 {
-  margin-bottom: 8px;
+.form-row {
+  @apply flex flex-col sm:flex-row gap-4 mb-4;
 }
-
-.mb-6 {
-  margin-bottom: 24px;
-}
-
-.w-full {
-  width: 100%;
-}
+.flex-1 { flex: 1; }
+.flex-2 { flex: 2; }
