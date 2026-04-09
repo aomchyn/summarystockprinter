@@ -161,17 +161,21 @@ export default function PaperStock() {
         if (!window.confirm(confirmMsg)) return;
 
         try {
+            if (!tx.id) throw new Error("ไม่พบรหัสอ้างอิงของรายการ (ไม่มี ID)");
+
             const { error } = await supabase
                 .from('paper_transactions')
                 .delete()
                 .eq('id', tx.id);
+            
             if (error) throw error;
+            
             setTransactions(prev => prev.filter(t => t.id !== tx.id));
             logAction('DELETE', 'stock', `ลบรายการ${tx.transaction_type === 'IN' ? 'รับเข้า' : 'เบิกใช้'} ${tx.paper_type} ${tx.qty} ใบ`, { txId: tx.id, paperType: tx.paper_type, qty: tx.qty, type: tx.transaction_type });
 
         } catch (err: any) {
             console.error('Error deleting transaction:', err);
-            alert('ลบรายการไม่สำเร็จ: ' + err.message);
+            alert('ลบรายการไม่สำเร็จ: ' + (err.message || "เกิดข้อผิดพลาดบางอย่าง"));
         }
     };
 

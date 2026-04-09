@@ -67,6 +67,7 @@ export default function Dashboard() {
     wasteQtyRemark: "",
     wasteA3: "",
     wasteA3Remark: "",
+    remark: "",
   });
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
 
@@ -75,8 +76,13 @@ export default function Dashboard() {
       return;
     }
     try {
+      if (!entryId) throw new Error("ไม่พบรหัสอ้างอิงของรายการ (ไม่มี ID)");
+
       const { error: err2 } = await supabase.from('paper_transactions').delete().eq('reference_id', entryId);
-      if (err2) console.error("Failed to delete paper_transaction logic", err2);
+      if (err2) {
+        console.error("Failed to delete paper_transaction", err2);
+        throw new Error("ไม่สามารถลบประวัติการเบิกกระดาษได้: " + err2.message);
+      }
 
       const { error: err1 } = await supabase.from('print_orders').delete().eq('id', entryId);
       if (err1) throw err1;
@@ -85,7 +91,8 @@ export default function Dashboard() {
       alert("✅ ลบรายการสำเร็จ (คืนสต็อคเรียบร้อย)");
       fetchOrders();
     } catch (err: any) {
-      alert("❌ ลบรายการไม่สำเร็จ: " + err.message);
+      console.error("Delete Order Error:", err);
+      alert("❌ ลบรายการไม่สำเร็จ: " + (err.message || "เกิดข้อผิดพลาดบางอย่าง"));
     }
   };
 
@@ -101,6 +108,7 @@ export default function Dashboard() {
       wasteQtyRemark: entry.waste_qty_remark || entry.wasteQtyRemark || "",
       wasteA3: entry.waste_a3?.toString() || entry.wasteA3?.toString() || "",
       wasteA3Remark: entry.waste_a3_remark || entry.wasteA3Remark || "",
+      remark: entry.remark || "",
     });
     setIsEditModalOpen(true);
   };
@@ -150,6 +158,7 @@ export default function Dashboard() {
         waste_qty_remark: editFormData.wasteQtyRemark || null,
         waste_a3: editFormData.wasteA3 ? parseInt(editFormData.wasteA3, 10) : null,
         waste_a3_remark: editFormData.wasteA3Remark || null,
+        remark: editFormData.remark || null,
       }).eq('id', entryId);
 
       if (pErr) throw pErr;
@@ -188,32 +197,6 @@ export default function Dashboard() {
         setCurrentUser(displayName);
       }
     });
-
-    // --- AUTO CLEANUP ORPHANED OUT TRANSACTIONS ---
-    const cleanupOrphans = async () => {
-      try {
-        const { data: po } = await supabase.from('print_orders').select('id');
-        const validIds = new Set((po || []).map(o => o.id));
-
-        const { data: tx } = await supabase.from('paper_transactions').select('*').eq('transaction_type', 'OUT');
-        
-        let deleted = 0;
-        for (const t of (tx || [])) {
-          if (t.reference_id === null || !validIds.has(t.reference_id)) {
-            await supabase.from('paper_transactions').delete().eq('id', t.id);
-            deleted++;
-          }
-        }
-        if (deleted > 0) {
-          console.log(`Cleaned up ${deleted} orphaned OUT transactions.`);
-          // Refresh the orders and stock summary internally if needed
-        }
-      } catch (err) {
-        console.error("Cleanup error:", err);
-      }
-    };
-    cleanupOrphans();
-    // ------------------------------------------
 
   }, []);
 
@@ -288,6 +271,7 @@ export default function Dashboard() {
 
         const remarkW = o.waste_qty_remark ? String(o.waste_qty_remark) : "";
         const remarkA3 = o.waste_a3_remark ? String(o.waste_a3_remark) : "";
+        const remarkGeneral = o.remark ? String(o.remark) : "";
 
         if (groupedOrders.has(groupKey)) {
           const existing = groupedOrders.get(groupKey)!;
@@ -299,10 +283,12 @@ export default function Dashboard() {
           existing.entries.push({ ...o, paper_type: paperTypeMap.get(o.id) || 'ไม่ระบุ' });
           if (remarkW && !existing.remarks.includes(remarkW)) existing.remarks.push(remarkW);
           if (remarkA3 && !existing.remarks.includes(remarkA3)) existing.remarks.push(remarkA3);
+          if (remarkGeneral && !existing.remarks.includes(remarkGeneral)) existing.remarks.push(remarkGeneral);
         } else {
           const initialRemarks: string[] = [];
           if (remarkW) initialRemarks.push(remarkW);
           if (remarkA3) initialRemarks.push(remarkA3);
+          if (remarkGeneral) initialRemarks.push(remarkGeneral);
 
           groupedOrders.set(groupKey, {
             id: groupKey,
@@ -437,6 +423,7 @@ export default function Dashboard() {
       wasteA3: number;
       excessQty: number;
       createdAt: string;
+      remark?: string;
     }> = [];
 
     printOrders.forEach(group => {
@@ -464,6 +451,7 @@ export default function Dashboard() {
             wasteA3,
             excessQty: excess,
             createdAt: entry.created_at || entry.date || '',
+            remark: entry.remark || undefined,
           });
         }
       });
@@ -1004,6 +992,7 @@ export default function Dashboard() {
                           <td className="py-3 px-4">
                             <div className="font-semibold text-slate-800">{order.lotName}</div>
                             <div className="text-xs text-slate-400">{order.productName}</div>
+                            {order.remark && <div className="text-xs text-amber-700 font-medium mt-0.5">💬 {order.remark}</div>}
                           </td>
                           <td className="py-3 px-4 text-right font-medium text-slate-700">{order.targetQty.toLocaleString()}</td>
                           <td className="py-3 px-4 text-right font-bold text-sky-600">{order.sheetsNeeded.toLocaleString()} ใบ</td>
@@ -1302,9 +1291,10 @@ export default function Dashboard() {
                                                       <span className="text-slate-300">-</span>
                                                     )}
                                                   </td>
-                                                  <td className="py-2.5 px-3 text-xs text-slate-500 max-w-[180px]">
+                                                  <td className="py-2.5 px-3 text-xs text-slate-500 max-w-[200px]">
                                                     {entry.waste_qty_remark && <div className="truncate text-slate-600">• {entry.waste_qty_remark} (ชิ้น)</div>}
                                                     {entry.waste_a3_remark && <div className="truncate text-slate-600">• {entry.waste_a3_remark} (A3)</div>}
+                                                    {entry.remark && <div className="truncate text-amber-700 font-medium">💬 {entry.remark}</div>}
                                                   </td>
                                                   <td className="py-2.5 px-3 text-center">
                                                     <div className="flex items-center justify-center gap-2">
@@ -1487,6 +1477,18 @@ export default function Dashboard() {
                       />
                     </div>
                   </div>
+                </div>
+
+                {/* General Remark */}
+                <div className="bg-amber-50/50 p-4 rounded-xl mb-6 border border-amber-100">
+                  <h4 className="text-sm font-bold text-amber-700 mb-3 uppercase tracking-wider">💬 หมายเหตุ (ทั่วไป)</h4>
+                  <input
+                    type="text"
+                    className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-amber-400"
+                    placeholder="เช่น งานด่วน, รอลูกค้ายืนยัน"
+                    value={editFormData.remark}
+                    onChange={(e) => setEditFormData({ ...editFormData, remark: e.target.value })}
+                  />
                 </div>
 
                 {/* Live Output Preview */}

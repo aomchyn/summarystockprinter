@@ -134,19 +134,26 @@ export default function Products() {
     if (window.confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบสินค้า "${name}"?\nถ้าลบแล้ว ข้อมูลประวัติการสั่งพิมพ์ที่เกี่ยวข้องอาจได้รับผลกระทบ`)) {
       setIsLoading(true);
       try {
+        if (!id) throw new Error("ไม่พบรหัสอ้างอิงของสินค้า (ไม่มี ID)");
+
         const { error } = await supabase
           .from('products')
           .delete()
           .eq('id', id);
 
-        if (error) throw error;
+        if (error) {
+           if (error.code === '23503') { // PostgreSQL foreign_key_violation
+             throw new Error("ไม่สามารถลบสินค้าได้ เนื่องจากยังมีประวัติการสั่งพิมพ์ที่ใช้สินค้านี้อยู่ (กรุณาลบประวัติเหล่านั้นออกก่อน)");
+           }
+           throw error;
+        }
 
         setProducts(products.filter(p => p.id !== id));
         logAction('DELETE', 'products', `ลบสินค้า "${name}"`, { id, name });
 
       } catch (error: any) {
         console.error("Error deleting product:", error);
-        alert("เกิดข้อผิดพลาดในการลบสินค้า: " + error.message);
+        alert("❌ เกิดข้อผิดพลาดในการลบสินค้า: " + (error.message || "เกิดข้อผิดพลาดบางอย่าง"));
       } finally {
         setIsLoading(false);
       }

@@ -29,6 +29,7 @@ interface OrderPrint {
   wasteQtyRemark?: string;
   wasteA3?: number;
   wasteA3Remark?: string;
+  remark?: string;
 }
 
 export default function PrintOrders() {
@@ -120,6 +121,7 @@ export default function PrintOrders() {
     wasteQtyRemark: "",
     wasteA3: "",
     wasteA3Remark: "",
+    remark: "",
   });
 
   const handleLogout = async () => {
@@ -226,6 +228,7 @@ export default function PrintOrders() {
           waste_qty_remark: formData.wasteQtyRemark || null,
           waste_a3: formData.wasteA3 ? parseInt(formData.wasteA3, 10) : null,
           waste_a3_remark: formData.wasteA3Remark || null,
+          remark: formData.remark || null,
           user_id: userId
         }])
         .select();
@@ -267,6 +270,7 @@ export default function PrintOrders() {
           wasteQtyRemark: o.waste_qty_remark || undefined,
           wasteA3: o.waste_a3 || undefined,
           wasteA3Remark: o.waste_a3_remark || undefined,
+          remark: o.remark || undefined,
         };
 
         setOrders([newOrder, ...orders]);
@@ -289,6 +293,7 @@ export default function PrintOrders() {
           wasteQtyRemark: "",
           wasteA3: "",
           wasteA3Remark: "",
+          remark: "",
         });
       }
     } catch (error: any) {
@@ -463,6 +468,19 @@ export default function PrintOrders() {
                   placeholder="เช่น เครื่องปริ้นกระดาษติด"
                   value={formData.wasteA3Remark}
                   onChange={(e) => setFormData({ ...formData, wasteA3Remark: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div className="form-row">
+              <div className="form-group" style={{ flex: 1 }}>
+                <label className="form-label">💬 หมายเหตุ (ทั่วไป) - ถ้ามี</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  placeholder="เช่น งานด่วน, รอลูกค้ายืนยัน"
+                  value={formData.remark}
+                  onChange={(e) => setFormData({ ...formData, remark: e.target.value })}
                 />
               </div>
             </div>
