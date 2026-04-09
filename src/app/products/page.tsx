@@ -95,11 +95,15 @@ export default function Products() {
 
     setIsLoading(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userId = session?.user?.id;
+
       const { data, error } = await supabase
         .from('products')
         .insert([{
           name: formData.name.trim(),
-          qty_per_a3: parseInt(formData.qtyPerA3, 10)
+          qty_per_a3: parseInt(formData.qtyPerA3, 10),
+          user_id: userId
         }])
         .select();
 

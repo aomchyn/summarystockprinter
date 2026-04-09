@@ -2,15 +2,20 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!; // Consider using SERVICE_ROLE_KEY if RLS limits deletion
+// Use SERVICE_ROLE_KEY for cron jobs to bypass RLS. 
+// If not found, it falls back to ANON_KEY (which might be restricted by RLS).
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 export async function POST(request: Request) {
-  // Allow if it's the Vercel Cron, or allow manual trigger for now
-  // In a real production app, we would check for a session or a secret here.
-  // const isVercelCron = authHeader === `Bearer ${process.env.CRON_SECRET}`;
-  // if (process.env.NODE_ENV === 'production' && !isVercelCron) { ... }
-
+  // Validate Cron Secret
+  const authHeader = request.headers.get('authorization');
+  // Vercel automatically provides CRON_SECRET
+  const isVercelCron = process.env.CRON_SECRET ? authHeader === `Bearer ${process.env.CRON_SECRET}` : true;
+  
+  if (process.env.NODE_ENV === 'production' && !isVercelCron) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
   try {
     // 1. Calculate Current Net Stock
     const { data: txData, error: txError } = await supabase

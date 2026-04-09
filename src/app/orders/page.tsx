@@ -226,6 +226,7 @@ export default function PrintOrders() {
           waste_qty_remark: formData.wasteQtyRemark || null,
           waste_a3: formData.wasteA3 ? parseInt(formData.wasteA3, 10) : null,
           waste_a3_remark: formData.wasteA3Remark || null,
+          user_id: userId
         }])
         .select();
 
