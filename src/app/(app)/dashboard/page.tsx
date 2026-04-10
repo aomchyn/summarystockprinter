@@ -203,18 +203,30 @@ export default function Dashboard() {
   const fetchProducts = async () => {
     setIsLoadingProducts(true);
     try {
-      const { data, error } = await supabase
-        .from('products')
-        .select('*')
-        .order('name', { ascending: true });
+      const PAGE_SIZE = 1000;
+      let allData: any[] = [];
+      let from = 0;
 
-      if (error) throw error;
+      while (true) {
+        const { data, error } = await supabase
+          .from('products')
+          .select('*')
+          .order('name', { ascending: true })
+          .range(from, from + PAGE_SIZE - 1);
 
-      const formattedProducts: Product[] = data?.map(p => ({
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+
+        allData = allData.concat(data);
+        if (data.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+      }
+
+      const formattedProducts: Product[] = allData.map(p => ({
         id: p.id,
         name: p.name,
         qtyPerA3: p.qty_per_a3
-      })) || [];
+      }));
 
       setProducts(formattedProducts);
     } catch (error: any) {
@@ -237,26 +249,55 @@ export default function Dashboard() {
       const dateString = startOfWeek.toISOString().split('T')[0];
 
       // Fetch all orders from the past 7 days
-      const { data, error } = await supabase
-        .from('print_orders')
-        .select(`
-          *,
-          products ( name, qty_per_a3 )
-        `)
-        .gte('date', dateString)
-        .order('date', { ascending: false });
+      const PAGE_SIZE = 1000;
+      let allData: any[] = [];
+      let fromIdx = 0;
 
-      if (error) throw error;
+      while (true) {
+        const { data: pageData, error } = await supabase
+          .from('print_orders')
+          .select(`
+            *,
+            products ( name, qty_per_a3 )
+          `)
+          .gte('date', dateString)
+          .order('date', { ascending: false })
+          .range(fromIdx, fromIdx + PAGE_SIZE - 1);
+
+        if (error) throw error;
+        if (!pageData || pageData.length === 0) break;
+
+        allData = allData.concat(pageData);
+        if (pageData.length < PAGE_SIZE) break;
+        fromIdx += PAGE_SIZE;
+      }
+
+      const data = allData;
 
       // Fetch paper_transactions to get paper_type per order
-      const { data: txData } = await supabase
-        .from('paper_transactions')
-        .select('reference_id, paper_type')
-        .eq('transaction_type', 'OUT')
-        .gte('date', dateString);
+      let allTxData: any[] = [];
+      let txFromIdx = 0;
+
+      while (true) {
+        const { data: pageTxData, error: txError } = await supabase
+          .from('paper_transactions')
+          .select('reference_id, paper_type')
+          .eq('transaction_type', 'OUT')
+          .gte('date', dateString)
+          .range(txFromIdx, txFromIdx + PAGE_SIZE - 1);
+
+        if (txError) throw txError;
+        if (!pageTxData || pageTxData.length === 0) break;
+
+        allTxData = allTxData.concat(pageTxData);
+        if (pageTxData.length < PAGE_SIZE) break;
+        txFromIdx += PAGE_SIZE;
+      }
+      
+      const txData = allTxData;
 
       const paperTypeMap = new Map<string, string>();
-      txData?.forEach((tx: any) => {
+      txData.forEach((tx: any) => {
         if (tx.reference_id) paperTypeMap.set(tx.reference_id, tx.paper_type);
       });
 

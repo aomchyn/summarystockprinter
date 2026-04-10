@@ -41,19 +41,31 @@ export default function Products() {
     setIsLoading(true);
     setErrorStatus(null);
     try {
-      const { data, error } = await supabase
-        .from('products')
-        .select('*')
-        .order('created_at', { ascending: false });
+      const PAGE_SIZE = 1000;
+      let allData: any[] = [];
+      let from = 0;
 
-      if (error) throw error;
+      while (true) {
+        const { data, error } = await supabase
+          .from('products')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .range(from, from + PAGE_SIZE - 1);
+
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+
+        allData = allData.concat(data);
+        if (data.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+      }
 
       // Map database snake_case to frontend camelCase
-      const formattedProducts: Product[] = data?.map(p => ({
+      const formattedProducts: Product[] = allData.map(p => ({
         id: p.id,
         name: p.name,
         qtyPerA3: p.qty_per_a3
-      })) || [];
+      }));
 
       setProducts(formattedProducts);
     } catch (error: any) {

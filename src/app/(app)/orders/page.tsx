@@ -62,31 +62,54 @@ export default function PrintOrders() {
     setIsLoading(true);
     setErrorMsg(null);
     try {
-      // 1. Fetch available products
-      const { data: productsData, error: productsError } = await supabase
-        .from('products')
-        .select('*')
-        .order('name');
+      // 1. Fetch available products (paginated – 1,000 per batch)
+      const PAGE_SIZE = 1000;
+      let allProductsData: any[] = [];
+      let from = 0;
 
-      if (productsError) throw productsError;
+      while (true) {
+        const { data: productsData, error: productsError } = await supabase
+          .from('products')
+          .select('*')
+          .order('name')
+          .range(from, from + PAGE_SIZE - 1);
 
-      const formattedProducts: Product[] = productsData?.map(p => ({
+        if (productsError) throw productsError;
+        if (!productsData || productsData.length === 0) break;
+
+        allProductsData = allProductsData.concat(productsData);
+        if (productsData.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+      }
+
+      const formattedProducts: Product[] = allProductsData.map(p => ({
         id: p.id,
         name: p.name,
         qtyPerA3: p.qty_per_a3
-      })) || [];
+      }));
       setProducts(formattedProducts);
 
-      // 2. Fetch past print orders for history
-      const { data: ordersData, error: ordersError } = await supabase
-        .from('print_orders')
-        .select('*')
-        .order('date', { ascending: false })
-        .order('created_at', { ascending: false });
+      // 2. Fetch past print orders for history (paginated)
+      let allOrdersData: any[] = [];
+      let ordersFrom = 0;
 
-      if (ordersError) throw ordersError;
+      while (true) {
+        const { data: ordersData, error: ordersError } = await supabase
+          .from('print_orders')
+          .select('*')
+          .order('date', { ascending: false })
+          .order('created_at', { ascending: false })
+          .range(ordersFrom, ordersFrom + PAGE_SIZE - 1);
 
-      const formattedOrders: OrderPrint[] = ordersData?.map(o => ({
+        if (ordersError) throw ordersError;
+        if (!ordersData || ordersData.length === 0) break;
+
+        allOrdersData = allOrdersData.concat(ordersData);
+        if (ordersData.length < PAGE_SIZE) break;
+        ordersFrom += PAGE_SIZE;
+      }
+
+      const formattedOrders: OrderPrint[] = allOrdersData.map(o => ({
         id: o.id,
         date: o.date,
         department: o.department || "-",
@@ -100,7 +123,7 @@ export default function PrintOrders() {
         wasteQtyRemark: o.waste_qty_remark || undefined,
         wasteA3: o.waste_a3 || undefined,
         wasteA3Remark: o.waste_a3_remark || undefined,
-      })) || [];
+      }));
 
       setOrders(formattedOrders);
     } catch (error: any) {
