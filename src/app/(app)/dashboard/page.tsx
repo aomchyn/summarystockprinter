@@ -248,13 +248,13 @@ export default function Dashboard() {
       const startOfWeek = new Date(current.setDate(diff));
       const dateString = startOfWeek.toISOString().split('T')[0];
 
-      // Fetch all orders from the past 7 days
+      // Fetch all orders from the start of the week (paginated)
       const PAGE_SIZE = 1000;
       let allData: any[] = [];
-      let fromIdx = 0;
+      let from = 0;
 
       while (true) {
-        const { data: pageData, error } = await supabase
+        const { data, error } = await supabase
           .from('print_orders')
           .select(`
             *,
@@ -262,49 +262,45 @@ export default function Dashboard() {
           `)
           .gte('date', dateString)
           .order('date', { ascending: false })
-          .range(fromIdx, fromIdx + PAGE_SIZE - 1);
+          .range(from, from + PAGE_SIZE - 1);
 
         if (error) throw error;
-        if (!pageData || pageData.length === 0) break;
+        if (!data || data.length === 0) break;
 
-        allData = allData.concat(pageData);
-        if (pageData.length < PAGE_SIZE) break;
-        fromIdx += PAGE_SIZE;
+        allData = allData.concat(data);
+        if (data.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
       }
 
-      const data = allData;
-
-      // Fetch paper_transactions to get paper_type per order
+      // Fetch paper_transactions to get paper_type per order (paginated)
       let allTxData: any[] = [];
-      let txFromIdx = 0;
+      let txFrom = 0;
 
       while (true) {
-        const { data: pageTxData, error: txError } = await supabase
+        const { data: txData, error: txError } = await supabase
           .from('paper_transactions')
           .select('reference_id, paper_type')
           .eq('transaction_type', 'OUT')
           .gte('date', dateString)
-          .range(txFromIdx, txFromIdx + PAGE_SIZE - 1);
+          .range(txFrom, txFrom + PAGE_SIZE - 1);
 
         if (txError) throw txError;
-        if (!pageTxData || pageTxData.length === 0) break;
+        if (!txData || txData.length === 0) break;
 
-        allTxData = allTxData.concat(pageTxData);
-        if (pageTxData.length < PAGE_SIZE) break;
-        txFromIdx += PAGE_SIZE;
+        allTxData = allTxData.concat(txData);
+        if (txData.length < PAGE_SIZE) break;
+        txFrom += PAGE_SIZE;
       }
-      
-      const txData = allTxData;
 
       const paperTypeMap = new Map<string, string>();
-      txData.forEach((tx: any) => {
+      allTxData.forEach((tx: any) => {
         if (tx.reference_id) paperTypeMap.set(tx.reference_id, tx.paper_type);
       });
 
       // Group and Aggregate
       const groupedOrders = new Map<string, DashboardOrderGroup>();
 
-      data?.forEach((o: any) => {
+      allData.forEach((o: any) => {
         const department = o.department || "-";
         const lotName = o.lot_name;
         const productId = o.product_id;
