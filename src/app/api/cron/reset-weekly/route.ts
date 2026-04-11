@@ -10,7 +10,7 @@ const supabaseAdmin = createClient(
 
 export async function POST(request: Request) {
   // ตรวจสอบ session ผู้ใช้แทน CRON_SECRET
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const supabaseAuth = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
