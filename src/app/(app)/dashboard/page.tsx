@@ -378,7 +378,7 @@ export default function Dashboard() {
 
     setIsLoadingOrders(true);
     try {
-      const response = await fetch('/api/cron/reset-weekly', {
+      const response = await fetch('/api/reset-weekly', {
         method: 'POST',
       });
       const result = await response.json();
