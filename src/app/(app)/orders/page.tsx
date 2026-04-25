@@ -147,6 +147,8 @@ export default function PrintOrders() {
     remark: "",
   });
 
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     router.push("/");
@@ -187,21 +189,23 @@ export default function PrintOrders() {
 
   // Real-time calculation logic for visual preview
   const calculationPreview = useMemo(() => {
-    if (!formData.productId || !formData.targetQty) return null;
+    if (!formData.productId) return null;
 
-    const selectedProduct = products.find(p => p.id === formData.productId);
-    const target = parseInt(formData.targetQty, 10);
+    const target = formData.targetQty ? parseInt(formData.targetQty, 10) : 0;
     const wasteA3 = formData.wasteA3 ? parseInt(formData.wasteA3, 10) : 0;
     const wasteQty = formData.wasteQty ? parseInt(formData.wasteQty, 10) : 0;
 
-    if (!selectedProduct || isNaN(target) || target <= 0) return null;
+    if (target <= 0 && wasteA3 <= 0 && wasteQty <= 0) return null;
+
+    const selectedProduct = products.find(p => p.id === formData.productId);
+    if (!selectedProduct) return null;
 
     const qtyPerA3 = selectedProduct.qtyPerA3;
 
     // Step 1: sheets needed just for target
-    const baseSheetsForTarget = Math.ceil(target / qtyPerA3);
+    const baseSheetsForTarget = target > 0 ? Math.ceil(target / qtyPerA3) : 0;
     const naturalTotal = baseSheetsForTarget * qtyPerA3;
-    const naturalExcess = naturalTotal - target;
+    const naturalExcess = target > 0 ? (naturalTotal - target) : 0;
 
     // Step 2: waste pieces reduce excess first; only add more sheets if waste > naturalExcess
     let extraSheetsForWaste = 0;
@@ -224,17 +228,35 @@ export default function PrintOrders() {
       productName: selectedProduct.name,
       qtyPerA3,
       naturalExcess,
+      target,
+      wasteQty,
+      wasteA3,
     };
   }, [formData.productId, formData.targetQty, formData.wasteA3, formData.wasteQty, products]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!calculationPreview || !formData.lotName) return;
 
+    // Check if at least one quantity is > 0
+    if (calculationPreview.target === 0 && calculationPreview.wasteA3 === 0 && calculationPreview.wasteQty === 0) {
+      alert("กรุณากรอกจำนวนเป้าหมาย จำนวนชิ้นเสีย หรือ จำนวน A3 เสีย อย่างน้อย 1 ค่า");
+      return;
+    }
+
+    setShowConfirmModal(true);
+  };
+
+  const confirmSubmit = async () => {
     setIsSubmitting(true);
+    setShowConfirmModal(false);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const userId = session?.user?.id;
+
+      const target = formData.targetQty ? parseInt(formData.targetQty, 10) : 0;
+      const wasteQty = formData.wasteQty ? parseInt(formData.wasteQty, 10) : null;
+      const wasteA3 = formData.wasteA3 ? parseInt(formData.wasteA3, 10) : null;
 
       const { data, error } = await supabase
         .from('print_orders')
@@ -243,13 +265,13 @@ export default function PrintOrders() {
           department: formData.department,
           lot_name: formData.lotName,
           product_id: formData.productId,
-          target_qty: parseInt(formData.targetQty, 10),
+          target_qty: target,
           sheets_needed: calculationPreview.sheetsNeeded,
           total_printed: calculationPreview.totalPrinted,
           excess_qty: calculationPreview.excessQty,
-          waste_qty: formData.wasteQty ? parseInt(formData.wasteQty, 10) : null,
+          waste_qty: wasteQty,
           waste_qty_remark: formData.wasteQtyRemark || null,
-          waste_a3: formData.wasteA3 ? parseInt(formData.wasteA3, 10) : null,
+          waste_a3: wasteA3,
           waste_a3_remark: formData.wasteA3Remark || null,
           remark: formData.remark || null,
           user_id: userId
@@ -301,7 +323,7 @@ export default function PrintOrders() {
           lot: formData.lotName,
           department: formData.department,
           product: calculationPreview.productName,
-          targetQty: parseInt(formData.targetQty, 10),
+          targetQty: target,
           sheetsNeeded: calculationPreview.sheetsNeeded,
           paperType: formData.paperType,
         });
@@ -441,8 +463,7 @@ export default function PrintOrders() {
                   placeholder="เช่น 100"
                   value={formData.targetQty}
                   onChange={(e) => setFormData({ ...formData, targetQty: e.target.value })}
-                  required
-                  min="1"
+                  min="0"
                 />
               </div>
             </div>
@@ -534,6 +555,107 @@ export default function PrintOrders() {
             </button>
           </form>
         </section>
+
+        {/* Confirmation Modal */}
+        {showConfirmModal && calculationPreview && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto pt-20">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 animate-scale-up relative">
+              <button 
+                onClick={() => setShowConfirmModal(false)}
+                className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors"
+                disabled={isSubmitting}
+              >
+                ✕
+              </button>
+              
+              <h2 className="text-xl font-bold text-slate-800 mb-5 flex items-center gap-2">
+                <span>📋</span> ยืนยันข้อมูลคำสั่งพิมพ์
+              </h2>
+              
+              <div className="space-y-4">
+                <div className="bg-slate-50 p-4 rounded-xl space-y-2 text-sm border border-slate-200">
+                  <div className="flex justify-between border-b border-slate-200 pb-2">
+                    <span className="text-slate-500">หน่วยงาน:</span>
+                    <span className="font-semibold text-slate-800">{formData.department}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-slate-200 pb-2">
+                    <span className="text-slate-500">ล็อต:</span>
+                    <span className="font-semibold text-slate-800">{formData.lotName}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-slate-200 pb-2">
+                    <span className="text-slate-500">สินค้า:</span>
+                    <span className="font-semibold text-slate-800">{calculationPreview.productName} ({calculationPreview.qtyPerA3} ชิ้น/A3)</span>
+                  </div>
+                  <div className="flex justify-between border-b border-slate-200 pb-2">
+                    <span className="text-slate-500">ประเภทกระดาษ:</span>
+                    <span className="font-semibold text-sky-600">{formData.paperType}</span>
+                  </div>
+                  <div className="flex justify-between pb-2 border-b border-slate-200">
+                    <span className="text-slate-500">จำนวนเป้าหมายที่ผลิตจริง:</span>
+                    <span className="font-semibold text-slate-800">{calculationPreview.target} ชิ้น</span>
+                  </div>
+                  {(calculationPreview.wasteQty > 0 || calculationPreview.wasteA3 > 0) && (
+                    <div className="pt-1">
+                      <div className="font-medium text-red-600 mb-1">ส่วนของเสีย:</div>
+                      {calculationPreview.wasteQty > 0 && (
+                        <div className="flex justify-between pl-2 border-l-2 border-red-200 mb-1">
+                          <span className="text-slate-500">เสียระดับชิ้น:</span>
+                          <span className="font-semibold text-red-600">
+                            {calculationPreview.wasteQty} ชิ้น
+                            {formData.wasteQtyRemark && <span className="text-xs text-red-500 block">({formData.wasteQtyRemark})</span>}
+                          </span>
+                        </div>
+                      )}
+                      {calculationPreview.wasteA3 > 0 && (
+                        <div className="flex justify-between pl-2 border-l-2 border-red-200">
+                          <span className="text-slate-500">เสียระดับ A3:</span>
+                          <span className="font-semibold text-red-600">
+                            {calculationPreview.wasteA3} ใบ
+                            {formData.wasteA3Remark && <span className="text-xs text-red-500 block">({formData.wasteA3Remark})</span>}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {formData.remark && (
+                    <div className="pt-2 border-t border-slate-200 flex justify-between">
+                      <span className="text-amber-700">หมายเหตุทั่วไป:</span>
+                      <span className="font-semibold text-amber-700 text-right max-w-xs">{formData.remark}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-sky-50 border border-sky-200 rounded-xl p-4">
+                  <h3 className="font-bold text-sky-800 mb-3 text-sm">การเบิกกระดาษ</h3>
+                  <div className="flex justify-between">
+                    <span className="text-sky-700">กระดาษ A3 ที่ต้องเบิกตัดสต็อค:</span>
+                    <span className="text-xl font-bold text-sky-600">{calculationPreview.sheetsNeeded} ใบ</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-6 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmModal(false)}
+                  className="px-5 py-2.5 rounded-xl font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors"
+                  disabled={isSubmitting}
+                >
+                  ยกเลิก / แก้ไข
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmSubmit}
+                  disabled={isSubmitting}
+                  className="px-6 py-2.5 rounded-xl font-semibold text-white bg-sky-600 hover:bg-sky-700 shadow-md transition-colors flex items-center gap-2"
+                >
+                  {isSubmitting ? "กำลังบันทึก..." : "ยืนยัน บันทึกข้อมูล"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
       </div>
     </div>

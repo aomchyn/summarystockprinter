@@ -101,8 +101,8 @@ export default function Dashboard() {
     setEditFormData({
       department: entry.department || "",
       lotName: entry.lot_name || entry.lotName || "",
-      paperType: entry.paper_type || "สติกเกอร์",
-      productId: entry.product_id || entry.products?.id || entry.productId || "",
+      paperType: entry.paperType || entry.paper_type || "สติกเกอร์",
+      productId: entry.productId || entry.product_id || entry.products?.id || "",
       targetQty: entry.target_qty?.toString() || entry.targetQty?.toString() || "",
       wasteQty: entry.waste_qty?.toString() || entry.wasteQty?.toString() || "",
       wasteQtyRemark: entry.waste_qty_remark || entry.wasteQtyRemark || "",
@@ -442,6 +442,8 @@ export default function Dashboard() {
       department: string;
       lotName: string;
       productName: string;
+      productId: string;
+      paperType: string;
       targetQty: number;
       sheetsNeeded: number;
       wasteQty: number;
@@ -472,6 +474,8 @@ export default function Dashboard() {
             department: entry.department || '-',
             lotName: entry.lot_name || '-',
             productName: group.productName,
+            productId: entry.product_id || group.productId,
+            paperType: entry.paper_type || 'สติกเกอร์',
             targetQty: target,
             sheetsNeeded: sheets,
             wasteQty,
