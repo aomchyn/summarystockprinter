@@ -248,6 +248,7 @@ export default function PrintOrders() {
   };
 
   const confirmSubmit = async () => {
+    if (!calculationPreview) return;
     setIsSubmitting(true);
     setShowConfirmModal(false);
     try {
