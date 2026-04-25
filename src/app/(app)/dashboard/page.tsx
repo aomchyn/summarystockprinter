@@ -114,17 +114,21 @@ export default function Dashboard() {
   };
 
   const editCalculationPreview = useMemo(() => {
-    if (!editFormData.productId || !editFormData.targetQty) return null;
-    const selectedProduct = products.find(p => p.id === editFormData.productId);
-    const target = parseInt(editFormData.targetQty, 10);
+    if (!editFormData.productId) return null;
+
+    const target = editFormData.targetQty ? parseInt(editFormData.targetQty, 10) : 0;
     const wasteA3 = editFormData.wasteA3 ? parseInt(editFormData.wasteA3, 10) : 0;
     const wasteQty = editFormData.wasteQty ? parseInt(editFormData.wasteQty, 10) : 0;
 
-    if (!selectedProduct || isNaN(target) || target <= 0) return null;
+    if (target <= 0 && wasteA3 <= 0 && wasteQty <= 0) return null;
+
+    const selectedProduct = products.find(p => p.id === editFormData.productId);
+    if (!selectedProduct) return null;
+
     const qtyPerA3 = selectedProduct.qtyPerA3;
-    const baseSheetsForTarget = Math.ceil(target / qtyPerA3);
+    const baseSheetsForTarget = target > 0 ? Math.ceil(target / qtyPerA3) : 0;
     const naturalTotal = baseSheetsForTarget * qtyPerA3;
-    const naturalExcess = naturalTotal - target;
+    const naturalExcess = target > 0 ? (naturalTotal - target) : 0;
 
     let extraSheetsForWaste = 0;
     if (wasteQty > naturalExcess) {
@@ -135,12 +139,17 @@ export default function Dashboard() {
     const excessQty = Math.max(0, totalPrinted - target - wasteQty);
     const sheetsNeeded = productiveSheets + wasteA3;
 
-    return { sheetsNeeded, totalPrinted, excessQty, productName: selectedProduct.name, qtyPerA3 };
+    return { sheetsNeeded, totalPrinted, excessQty, productName: selectedProduct.name, qtyPerA3, target, wasteA3, wasteQty };
   }, [editFormData.productId, editFormData.targetQty, editFormData.wasteA3, editFormData.wasteQty, products]);
 
   const submitEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editCalculationPreview || !editingEntry) return;
+
+    if (editCalculationPreview.target === 0 && editCalculationPreview.wasteA3 === 0 && editCalculationPreview.wasteQty === 0) {
+      alert("กรุณากรอกจำนวนเป้าหมาย จำนวนชิ้นเสีย หรือ จำนวน A3 เสีย อย่างน้อย 1 ค่า");
+      return;
+    }
 
     setIsSubmittingEdit(true);
     try {
@@ -150,13 +159,13 @@ export default function Dashboard() {
         department: editFormData.department,
         lot_name: editFormData.lotName,
         product_id: editFormData.productId,
-        target_qty: parseInt(editFormData.targetQty, 10),
+        target_qty: editCalculationPreview.target,
         sheets_needed: editCalculationPreview.sheetsNeeded,
         total_printed: editCalculationPreview.totalPrinted,
         excess_qty: editCalculationPreview.excessQty,
-        waste_qty: editFormData.wasteQty ? parseInt(editFormData.wasteQty, 10) : null,
+        waste_qty: editCalculationPreview.wasteQty > 0 ? editCalculationPreview.wasteQty : null,
         waste_qty_remark: editFormData.wasteQtyRemark || null,
-        waste_a3: editFormData.wasteA3 ? parseInt(editFormData.wasteA3, 10) : null,
+        waste_a3: editCalculationPreview.wasteA3 > 0 ? editCalculationPreview.wasteA3 : null,
         waste_a3_remark: editFormData.wasteA3Remark || null,
         remark: editFormData.remark || null,
       }).eq('id', entryId);
@@ -464,9 +473,12 @@ export default function Dashboard() {
           const wasteQty = entry.waste_qty || 0;
           const wasteA3 = entry.waste_a3 || 0;
           const sheets = entry.sheets_needed || 0;
-          const naturalExcess = (Math.ceil(target / ratio) * ratio) - target;
+          
+          const baseSheetsForTarget = target > 0 ? Math.ceil(target / ratio) : 0;
+          const naturalExcess = target > 0 ? (baseSheetsForTarget * ratio) - target : 0;
+          
           const extraSheets = wasteQty > naturalExcess ? Math.ceil((wasteQty - naturalExcess) / ratio) : 0;
-          const productiveSheets = Math.ceil(target / ratio) + extraSheets;
+          const productiveSheets = baseSheetsForTarget + extraSheets;
           const totalPrinted = productiveSheets * ratio;
           const excess = Math.max(0, totalPrinted - target - wasteQty);
           todayEntries.push({
@@ -841,11 +853,14 @@ export default function Dashboard() {
     const ratio = entry.products?.qty_per_a3 || 1;
     const target = entry.target_qty || 0;
     const wasteQty = entry.waste_qty || 0;
-    const naturalExcess = (Math.ceil(target / ratio) * ratio) - target;
+    
+    const baseSheetsForTarget = target > 0 ? Math.ceil(target / ratio) : 0;
+    const naturalExcess = target > 0 ? (baseSheetsForTarget * ratio) - target : 0;
+    
     const extraSheets = wasteQty > naturalExcess
       ? Math.ceil((wasteQty - naturalExcess) / ratio)
       : 0;
-    const productiveSheets = Math.ceil(target / ratio) + extraSheets;
+    const productiveSheets = baseSheetsForTarget + extraSheets;
     const totalPrinted = productiveSheets * ratio;
     return Math.max(0, totalPrinted - target - wasteQty);
   };
@@ -1433,7 +1448,7 @@ export default function Dashboard() {
                         className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-sky-500 text-lg font-bold"
                         value={editFormData.targetQty}
                         onChange={(e) => setEditFormData({ ...editFormData, targetQty: e.target.value })}
-                        required min="1"
+                        min="0"
                       />
                     </div>
                   </div>
