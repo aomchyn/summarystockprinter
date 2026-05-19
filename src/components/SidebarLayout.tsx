@@ -9,6 +9,7 @@ export default function SidebarLayout({ children }: { children: React.ReactNode 
   const pathname = usePathname();
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState<string>('');
+  const [isAdmin, setIsAdmin] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -17,6 +18,10 @@ export default function SidebarLayout({ children }: { children: React.ReactNode 
         const email = session.user.email || '';
         const displayName = session.user.user_metadata?.full_name || session.user.user_metadata?.name || (email ? email.split('@')[0] : 'ผู้ใช้');
         setCurrentUser(displayName);
+        
+        // Check for admin role
+        const role = session.user.user_metadata?.role;
+        setIsAdmin(role === 'admin' || email === 'admin@summary.com');
       }
     });
   }, []);
@@ -32,8 +37,13 @@ export default function SidebarLayout({ children }: { children: React.ReactNode 
     { name: 'สั่งพิมพ์', path: '/orders', icon: '📝' },
     { name: 'จัดการสินค้า', path: '/products', icon: '📦' },
     { name: 'สต็อคกระดาษ', path: '/stock', icon: '📄' },
-    { name: 'ประวัติการใช้งาน', path: '/logs', icon: '🕰️' },
+    { name: 'ออกรายงาน', path: '/reports', icon: '📑' },
   ];
+
+  if (isAdmin) {
+    navItems.push({ name: 'ประวัติการใช้งาน', path: '/logs', icon: '🕰️' });
+    navItems.push({ name: 'จัดการผู้ใช้', path: '/users', icon: '👥' });
+  }
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden text-slate-800">

@@ -12,9 +12,13 @@
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.98.0",
     "@tailwindcss/postcss": "^4.2.1",
+    "docx-merger": "^1.2.2",
+    "docxtemplater": "^3.68.7",
+    "docxtemplater-image-module-free": "^1.1.1",
     "exceljs": "^4.4.0",
     "file-saver": "^2.0.5",
     "next": "^16.2.2",
+    "pizzip": "^3.2.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "styled-jsx": "^5.1.7"

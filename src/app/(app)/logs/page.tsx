@@ -26,17 +26,28 @@ export default function LogsPage() {
   const [filterAction, setFilterAction] = useState<string>('all');
 
   useEffect(() => {
-    fetchLogs();
-    
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        const email = session.user.email || '';
-        const displayName =
-          session.user.user_metadata?.full_name ||
-          session.user.user_metadata?.name ||
-          (email ? email.split('@')[0] : 'ผู้ใช้');
-        setCurrentUser(displayName);
+      if (!session?.user) {
+        router.push("/");
+        return;
       }
+
+      const email = session.user.email || '';
+      const role = session.user.user_metadata?.role;
+      const isAdmin = role === 'admin' || email === 'admin@summary.com';
+
+      if (!isAdmin) {
+        router.push("/dashboard");
+        return;
+      }
+
+      const displayName =
+        session.user.user_metadata?.full_name ||
+        session.user.user_metadata?.name ||
+        (email ? email.split('@')[0] : 'ผู้ใช้');
+      setCurrentUser(displayName);
+
+      fetchLogs();
     });
 
     // Optional: Real-time subscription to logs
