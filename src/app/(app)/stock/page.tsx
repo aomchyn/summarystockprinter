@@ -20,7 +20,8 @@ interface PaperTransaction {
 }
 
 export const PAPER_TYPES = [
-    "สติกเกอร์",
+    "สติกเกอร์ RONDA PG-88G (ไม่เหนียว)",
+    "สติกเกอร์ MCL-AG-LP K-TAK (เหนียว)",
     "130 แกรม",
     "200 แกรม",
     "300 แกรม",
@@ -141,9 +142,9 @@ export default function PaperStock() {
                 setTransactions([newTx, ...transactions]);
                 setFormData({ ...formData, qty: "", description: "" });
                 logAction('CREATE', 'stock', `รับเข้ากระดาษ ${formData.paperType} ${parseInt(formData.qty, 10)} ใบ`, {
-                  paperType: formData.paperType,
-                  qty: parseInt(formData.qty, 10),
-                  description: formData.description,
+                    paperType: formData.paperType,
+                    qty: parseInt(formData.qty, 10),
+                    description: formData.description,
                 });
             }
 
@@ -167,9 +168,9 @@ export default function PaperStock() {
                 .from('paper_transactions')
                 .delete()
                 .eq('id', tx.id);
-            
+
             if (error) throw error;
-            
+
             setTransactions(prev => prev.filter(t => t.id !== tx.id));
             logAction('DELETE', 'stock', `ลบรายการ${tx.transaction_type === 'IN' ? 'รับเข้า' : 'เบิกใช้'} ${tx.paper_type} ${tx.qty} ใบ`, { txId: tx.id, paperType: tx.paper_type, qty: tx.qty, type: tx.transaction_type });
 
@@ -201,68 +202,68 @@ export default function PaperStock() {
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 delay-200 animate-fade-in">
                     {/* Stock In Form */}
                     <div className="flex flex-col gap-6 lg:col-span-1 border-0">
-                    <section className="glass-panel p-6">
-                        <div className="mb-6 border-b border-slate-100 pb-3">
-                            <h2 className="text-lg font-bold text-slate-800 m-0">รับเข้ากระดาษ (Stock In)</h2>
-                        </div>
-                        <form onSubmit={handleSubmit} className="stock-form">
-                            <div className="form-group mb-4">
-                                <label className="form-label">ประเภทกระดาษ</label>
-                                <select
-                                    className="input-field cursor-pointer"
-                                    value={formData.paperType}
-                                    onChange={(e) => setFormData({ ...formData, paperType: e.target.value })}
-                                >
-                                    {PAPER_TYPES.map(type => (
-                                        <option key={type} value={type} className="text-gray-900">{type}</option>
-                                    ))}
-                                </select>
+                        <section className="glass-panel p-6">
+                            <div className="mb-6 border-b border-slate-100 pb-3">
+                                <h2 className="text-lg font-bold text-slate-800 m-0">รับเข้ากระดาษ (Stock In)</h2>
                             </div>
-                            <div className="form-group mb-4">
-                                <label className="form-label">จำนวน (แผ่น)</label>
-                                <input
-                                    type="number"
-                                    className="input-field"
-                                    placeholder="ตัวอย่างเช่น 500"
-                                    value={formData.qty}
-                                    onChange={(e) => setFormData({ ...formData, qty: e.target.value })}
-                                    required
-                                />
-                            </div>
-
-                            <div className="form-group mb-6">
-                                <label className="form-label">หมายเหตุ (ไม่บังคับ)</label>
-                                <input
-                                    type="text"
-                                    className="input-field"
-                                    placeholder="เช่น ซื้อจากร้าน A"
-                                    value={formData.description}
-                                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                                />
-                            </div>
-
-                            <button type="submit" className="btn btn-primary w-full" disabled={isSubmitting}>
-                                {isSubmitting ? "กำลังบันทึก..." : "บันทึกรับเข้าสต็อค"}
-                            </button>
-                        </form>
-                    </section>
-                    
-                    {/* Realtime Stats Summary All at Once */}
-                    <section className="glass-panel p-6 bg-slate-800 text-white border-0">
-                        <div className="flex justify-between items-center mb-4 pb-3 border-b border-white/10">
-                            <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider m-0">สต็อคกระดาษคงเหลือ</h3>
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                            {balances.map((b) => (
-                                <div key={b.type} className="stat-card bg-white/5 border border-white/10 rounded-xl p-3 text-center transition-colors hover:bg-white/10">
-                                    <span className="block text-xs text-slate-400 mb-1 truncate">{b.type}</span>
-                                    <span className={`block text-2xl font-bold ${b.balance < 50 ? 'text-amber-400' : 'text-emerald-400'}`}>
-                                        {b.balance.toLocaleString()}
-                                    </span>
+                            <form onSubmit={handleSubmit} className="stock-form">
+                                <div className="form-group mb-4">
+                                    <label className="form-label">ประเภทกระดาษ</label>
+                                    <select
+                                        className="input-field cursor-pointer"
+                                        value={formData.paperType}
+                                        onChange={(e) => setFormData({ ...formData, paperType: e.target.value })}
+                                    >
+                                        {PAPER_TYPES.map(type => (
+                                            <option key={type} value={type} className="text-gray-900">{type}</option>
+                                        ))}
+                                    </select>
                                 </div>
-                            ))}
-                        </div>
-                    </section>
+                                <div className="form-group mb-4">
+                                    <label className="form-label">จำนวน (แผ่น)</label>
+                                    <input
+                                        type="number"
+                                        className="input-field"
+                                        placeholder="ตัวอย่างเช่น 500"
+                                        value={formData.qty}
+                                        onChange={(e) => setFormData({ ...formData, qty: e.target.value })}
+                                        required
+                                    />
+                                </div>
+
+                                <div className="form-group mb-6">
+                                    <label className="form-label">หมายเหตุ (ไม่บังคับ)</label>
+                                    <input
+                                        type="text"
+                                        className="input-field"
+                                        placeholder="เช่น ซื้อจากร้าน A"
+                                        value={formData.description}
+                                        onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                                    />
+                                </div>
+
+                                <button type="submit" className="btn btn-primary w-full" disabled={isSubmitting}>
+                                    {isSubmitting ? "กำลังบันทึก..." : "บันทึกรับเข้าสต็อค"}
+                                </button>
+                            </form>
+                        </section>
+
+                        {/* Realtime Stats Summary All at Once */}
+                        <section className="glass-panel p-6 bg-slate-800 text-white border-0">
+                            <div className="flex justify-between items-center mb-4 pb-3 border-b border-white/10">
+                                <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider m-0">สต็อคกระดาษคงเหลือ</h3>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                {balances.map((b) => (
+                                    <div key={b.type} className="stat-card bg-white/5 border border-white/10 rounded-xl p-3 text-center transition-colors hover:bg-white/10">
+                                        <span className="block text-xs text-slate-400 mb-1 truncate">{b.type}</span>
+                                        <span className={`block text-2xl font-bold ${b.balance < 50 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                                            {b.balance.toLocaleString()}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        </section>
                     </div>
 
                     {/* Transactions History */}

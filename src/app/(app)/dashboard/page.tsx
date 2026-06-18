@@ -60,7 +60,7 @@ export default function Dashboard() {
   const [editFormData, setEditFormData] = useState({
     department: "",
     lotName: "",
-    paperType: "สติกเกอร์",
+    paperType: "สติกเกอร์ RONDA PG-88G (ไม่เหนียว)",
     productId: "",
     targetQty: "",
     wasteQty: "",
@@ -473,10 +473,10 @@ export default function Dashboard() {
           const wasteQty = entry.waste_qty || 0;
           const wasteA3 = entry.waste_a3 || 0;
           const sheets = entry.sheets_needed || 0;
-          
+
           const baseSheetsForTarget = target > 0 ? Math.ceil(target / ratio) : 0;
           const naturalExcess = target > 0 ? (baseSheetsForTarget * ratio) - target : 0;
-          
+
           const extraSheets = wasteQty > naturalExcess ? Math.ceil((wasteQty - naturalExcess) / ratio) : 0;
           const productiveSheets = baseSheetsForTarget + extraSheets;
           const totalPrinted = productiveSheets * ratio;
@@ -853,10 +853,10 @@ export default function Dashboard() {
     const ratio = entry.products?.qty_per_a3 || 1;
     const target = entry.target_qty || 0;
     const wasteQty = entry.waste_qty || 0;
-    
+
     const baseSheetsForTarget = target > 0 ? Math.ceil(target / ratio) : 0;
     const naturalExcess = target > 0 ? (baseSheetsForTarget * ratio) - target : 0;
-    
+
     const extraSheets = wasteQty > naturalExcess
       ? Math.ceil((wasteQty - naturalExcess) / ratio)
       : 0;

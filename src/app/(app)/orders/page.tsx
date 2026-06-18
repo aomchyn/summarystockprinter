@@ -137,7 +137,7 @@ export default function PrintOrders() {
   const [formData, setFormData] = useState({
     department: "",
     lotName: "",
-    paperType: "สติกเกอร์",
+    paperType: "สติกเกอร์ RONDA PG-88G (ไม่เหนียว)",
     productId: "",
     targetQty: "",
     wasteQty: "",
@@ -332,7 +332,7 @@ export default function PrintOrders() {
         setFormData({
           department: "",
           lotName: "",
-          paperType: "สติกเกอร์",
+          paperType: "สติกเกอร์ RONDA PG-88G (ไม่เหนียว)",
           productId: "",
           targetQty: "",
           wasteQty: "",
@@ -561,18 +561,18 @@ export default function PrintOrders() {
         {showConfirmModal && calculationPreview && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto pt-20">
             <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 animate-scale-up relative">
-              <button 
+              <button
                 onClick={() => setShowConfirmModal(false)}
                 className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors"
                 disabled={isSubmitting}
               >
                 ✕
               </button>
-              
+
               <h2 className="text-xl font-bold text-slate-800 mb-5 flex items-center gap-2">
                 <span>📋</span> ยืนยันข้อมูลคำสั่งพิมพ์
               </h2>
-              
+
               <div className="space-y-4">
                 <div className="bg-slate-50 p-4 rounded-xl space-y-2 text-sm border border-slate-200">
                   <div className="flex justify-between border-b border-slate-200 pb-2">
