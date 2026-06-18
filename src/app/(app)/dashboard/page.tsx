@@ -989,6 +989,7 @@ export default function Dashboard() {
                       <th className="py-3 px-4 text-right text-red-400">A3 เสีย</th>
                       <th className="py-3 px-4 text-right text-amber-600">ส่วนเกิน</th>
                       <th className="py-3 px-4 text-slate-500 min-w-[140px]">หมายเหตุ</th>
+                      <th className="py-3 px-4 text-slate-500 ">กระดาษ</th>
                       <th className="py-3 px-4 text-center w-24">จัดการ</th>
                     </tr>
                   </thead>
@@ -1031,6 +1032,11 @@ export default function Dashboard() {
                             </div>
                           }
                         </td>
+                        <td className="py-3 px-4">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                            {order.paperType}
+                          </span>
+                        </td>
                         <td className="py-3 px-4 text-center">
                           <div className="flex items-center justify-center gap-2">
                             <button
@@ -1060,6 +1066,7 @@ export default function Dashboard() {
                       <td className="py-3 px-4 text-right text-red-600">{dailyOrders.reduce((s, o) => s + o.wasteQty, 0) > 0 ? `${dailyOrders.reduce((s, o) => s + o.wasteQty, 0).toLocaleString()} ชิ้น` : '-'}</td>
                       <td className="py-3 px-4 text-right text-red-500">{dailyOrders.reduce((s, o) => s + o.wasteA3, 0) > 0 ? `${dailyOrders.reduce((s, o) => s + o.wasteA3, 0).toLocaleString()} ใบ` : '-'}</td>
                       <td className="py-3 px-4 text-right text-amber-600">{dailyOrders.reduce((s, o) => s + o.excessQty, 0).toLocaleString()}</td>
+                      <td className="py-3 px-4"></td>
                       <td className="py-3 px-4"></td>
                       <td className="py-3 px-4"></td>
                     </tr>
