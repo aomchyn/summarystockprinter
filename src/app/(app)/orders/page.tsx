@@ -329,6 +329,21 @@ export default function PrintOrders() {
           paperType: formData.paperType,
         });
 
+        alert(
+          `✅ บันทึกคำสั่งพิมพ์สำเร็จ!\n` +
+          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `หน่วยงาน: ${formData.department}\n` +
+          `ล็อต: ${formData.lotName}\n` +
+          `สินค้า: ${calculationPreview.productName} (${calculationPreview.qtyPerA3} ชิ้น/A3)\n` +
+          `ประเภทกระดาษ: ${formData.paperType}\n` +
+          `จำนวนเป้าหมาย: ${target} ชิ้น\n` +
+          (calculationPreview.wasteQty > 0 ? `ชิ้นเสีย: ${calculationPreview.wasteQty} ชิ้น${formData.wasteQtyRemark ? ` (${formData.wasteQtyRemark})` : ''}\n` : '') +
+          (calculationPreview.wasteA3 > 0 ? `A3 เสีย: ${calculationPreview.wasteA3} ใบ${formData.wasteA3Remark ? ` (${formData.wasteA3Remark})` : ''}\n` : '') +
+          (formData.remark ? `หมายเหตุ: ${formData.remark}\n` : '') +
+          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `กระดาษ A3 ที่เบิกตัดสต็อค: ${calculationPreview.sheetsNeeded} ใบ`
+        );
+
         setFormData({
           department: "",
           lotName: "",
