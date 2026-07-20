@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -37,6 +37,7 @@ export default function Dashboard() {
   const router = useRouter();
 
   const [currentUser, setCurrentUser] = useState<string>('');
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   const [printOrders, setPrintOrders] = useState<DashboardOrderGroup[]>([]);
   const [isLoadingOrders, setIsLoadingOrders] = useState(true);
@@ -63,6 +64,7 @@ export default function Dashboard() {
     paperType: "สติกเกอร์ RONDA PG-88G (ไม่เหนียว)",
     productId: "",
     targetQty: "",
+    goodA3: "",
     wasteQty: "",
     wasteQtyRemark: "",
     wasteA3: "",
@@ -71,6 +73,9 @@ export default function Dashboard() {
   });
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
 
+  const [productSearchQuery, setProductSearchQuery] = useState("");
+  const [isProductDropdownOpen, setIsProductDropdownOpen] = useState(false);
+  const lastConfirmedProductRef = useRef<{ id: string; label: string }>({ id: "", label: "" });
   const handleDeleteEntry = async (entryId: string, lotName: string, sheetsNeeded: number) => {
     if (!window.confirm(`⚠️ ยืนยันการลบรายการ: ${lotName} ?\n\nระบบจะลบข้อมูลการสั่งพิมพ์และคืนสต็อคกระดาษ ${sheetsNeeded} ใบกลับเข้าคลัง`)) {
       return;
@@ -78,11 +83,15 @@ export default function Dashboard() {
     try {
       if (!entryId) throw new Error("ไม่พบรหัสอ้างอิงของรายการ (ไม่มี ID)");
 
-      const { error: err2 } = await supabase.from('paper_transactions').delete().eq('reference_id', entryId);
+      const { error: err2 } = await supabase.from('paper_transactions')
+        .delete()
+        .eq('reference_id', entryId);
+
       if (err2) {
         console.error("Failed to delete paper_transaction", err2);
         throw new Error("ไม่สามารถลบประวัติการเบิกกระดาษได้: " + err2.message);
       }
+
 
       const { error: err1 } = await supabase.from('print_orders').delete().eq('id', entryId);
       if (err1) throw err1;
@@ -98,20 +107,56 @@ export default function Dashboard() {
 
   const handleOpenEdit = (entry: any) => {
     setEditingEntry(entry);
+    const currentProductId = entry.productId || entry.product_id || entry.products?.id || "";
+    const currentProduct = products.find(p => p.id === currentProductId);
+    const productLabel = currentProduct
+      ? `${currentProduct.name} (${currentProduct.qtyPerA3} ชิ้น/A3)`
+      : (entry.productName || entry.products?.name || "");
+    setProductSearchQuery(productLabel);
+    lastConfirmedProductRef.current = { id: currentProductId, label: productLabel };
+    setIsProductDropdownOpen(false);
+
+    // ดึงค่าจริงของรายการนี้ (รองรับทั้ง snake_case จาก DB และ camelCase จากกลุ่มที่ประมวลผลแล้ว)
+    const target = entry.target_qty ?? entry.targetQty ?? 0;
+    const wasteQty = entry.waste_qty ?? entry.wasteQty ?? 0;
+    const wasteA3 = entry.waste_a3 ?? entry.wasteA3 ?? 0;
+    const ratio = currentProduct?.qtyPerA3 || entry.products?.qty_per_a3 || 1;
+
+    // คำนวณค่า A3 ดี แบบอัตโนมัติของรายการนี้ (สูตรเดียวกับ editCalculationPreview)
+    const baseSheetsForTarget = target > 0 ? Math.ceil(target / ratio) : 0;
+    const naturalExcess = target > 0 ? (baseSheetsForTarget * ratio) - target : 0;
+    const extraSheetsForWaste = wasteQty > naturalExcess ? Math.ceil((wasteQty - naturalExcess) / ratio) : 0;
+    const autoGoodA3ForEntry = baseSheetsForTarget + extraSheetsForWaste;
+
+    // ค่าที่บันทึกไว้จริงในระบบ
+    const savedGoodA3 = entry.good_a3 ?? entry.goodA3 ?? ((entry.sheets_needed ?? entry.sheetsNeeded ?? 0) - wasteA3);
+
+    // ส่วนต่างที่เคยกรอกเพิ่มไว้ก่อนหน้า (ถ้าไม่เคยเพิ่มจะได้ 0 → แสดงเป็นช่องว่าง)
+    const previousExtraGoodA3 = savedGoodA3 - autoGoodA3ForEntry;
+
     setEditFormData({
       department: entry.department || "",
       lotName: entry.lot_name || entry.lotName || "",
       paperType: entry.paperType || entry.paper_type || "สติกเกอร์",
-      productId: entry.productId || entry.product_id || entry.products?.id || "",
-      targetQty: entry.target_qty?.toString() || entry.targetQty?.toString() || "",
-      wasteQty: entry.waste_qty?.toString() || entry.wasteQty?.toString() || "",
+      productId: currentProductId,
+      targetQty: target ? target.toString() : "",
+      goodA3: previousExtraGoodA3 !== 0 ? previousExtraGoodA3.toString() : "",
+      wasteQty: wasteQty ? wasteQty.toString() : "",
       wasteQtyRemark: entry.waste_qty_remark || entry.wasteQtyRemark || "",
-      wasteA3: entry.waste_a3?.toString() || entry.wasteA3?.toString() || "",
+      wasteA3: wasteA3 ? wasteA3.toString() : "",
       wasteA3Remark: entry.waste_a3_remark || entry.wasteA3Remark || "",
       remark: entry.remark || "",
     });
+
     setIsEditModalOpen(true);
   };
+
+
+  const filteredProducts = useMemo(() => {
+    if (!productSearchQuery.trim()) return products;
+    const q = productSearchQuery.trim().toLowerCase();
+    return products.filter(p => p.name.toLowerCase().includes(q));
+  }, [products, productSearchQuery]);
 
   const editCalculationPreview = useMemo(() => {
     if (!editFormData.productId) return null;
@@ -134,20 +179,33 @@ export default function Dashboard() {
     if (wasteQty > naturalExcess) {
       extraSheetsForWaste = Math.ceil((wasteQty - naturalExcess) / qtyPerA3);
     }
-    const productiveSheets = baseSheetsForTarget + extraSheetsForWaste;
-    const totalPrinted = productiveSheets * qtyPerA3;
+
+
+    // ค่าที่คำนวณอัตโนมัติจากเป้าหมาย/ของเสีย
+    const autoGoodA3 = baseSheetsForTarget + extraSheetsForWaste;
+
+    // ชองนี้คือ "จำนวน A3 ดี ที่ต้องการเพิ่ม" — คาที่กรอกจะถูกบวกเพิ่มจากยอดที่คำนวณอัตโนมัติ ไม่ใช่แทนที่
+    const extraGoodA3 = editFormData.goodA3 !== "" ? parseInt(editFormData.goodA3, 10) || 0 : 0;
+    const goodA3 = autoGoodA3 + extraGoodA3;
+
+    if (target <= 0 && wasteA3 <= 0 && wasteQty <= 0 && goodA3 <= 0) return null;
+
+    const totalPrinted = goodA3 * qtyPerA3;
     const excessQty = Math.max(0, totalPrinted - target - wasteQty);
-    const sheetsNeeded = productiveSheets + wasteA3;
+    const sheetsNeeded = goodA3 + wasteA3;
+    return { sheetsNeeded, totalPrinted, excessQty, productName: selectedProduct.name, qtyPerA3, target, wasteA3, wasteQty, goodA3, autoGoodA3, extraGoodA3 };
 
-    return { sheetsNeeded, totalPrinted, excessQty, productName: selectedProduct.name, qtyPerA3, target, wasteA3, wasteQty };
-  }, [editFormData.productId, editFormData.targetQty, editFormData.wasteA3, editFormData.wasteQty, products]);
-
+  }, [editFormData.productId, editFormData.targetQty, editFormData.wasteA3, editFormData.wasteQty, editFormData.goodA3, products]);
   const submitEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editCalculationPreview || !editingEntry) return;
 
     if (editCalculationPreview.target === 0 && editCalculationPreview.wasteA3 === 0 && editCalculationPreview.wasteQty === 0) {
       alert("กรุณากรอกจำนวนเป้าหมาย จำนวนชิ้นเสีย หรือ จำนวน A3 เสีย อย่างน้อย 1 ค่า");
+      return;
+    }
+
+    if (!window.confirm(`⚠️ คุณกำลังจะบันทึกการแก้ไขรายการ Lot: ${editFormData.lotName}\n\nยืนยันที่จะบันทึกการเปลี่ยนแปลงนี้ใช่หรือไม่?`)) {
       return;
     }
 
@@ -160,6 +218,7 @@ export default function Dashboard() {
         lot_name: editFormData.lotName,
         product_id: editFormData.productId,
         target_qty: editCalculationPreview.target,
+        good_a3: editCalculationPreview.goodA3,
         sheets_needed: editCalculationPreview.sheetsNeeded,
         total_printed: editCalculationPreview.totalPrinted,
         excess_qty: editCalculationPreview.excessQty,
@@ -172,13 +231,76 @@ export default function Dashboard() {
 
       if (pErr) throw pErr;
 
-      const { error: txErr } = await supabase.from('paper_transactions').update({
-        paper_type: editFormData.paperType,
-        qty: editCalculationPreview.sheetsNeeded,
-        description: `สั่งพิมพ์ล็อต: ${editFormData.lotName} (แก้ไข)`
-      }).eq('reference_id', entryId).eq('transaction_type', 'OUT');
+      // ตัดสต็อค: แยกเป็น "กระดาษดี" กับ "กระดาษเสีย" คนละแถว
+      // ใช้ reference_id เดิม (= entryId) เหมือนกันทั้งคู่ แยกดวย transaction_category แทน
+      const { data: existingGoodTx } = await supabase
+        .from('paper_transactions')
+        .select('id')
+        .eq('reference_id', entryId)
+        .eq('transaction_type', 'OUT')
+        .or('transaction_category.eq.GOOD,transaction_category.is.null')
+        .limit(1)
+        .maybeSingle();
 
-      if (txErr) console.error("Failed to update stock logic", txErr);
+      if (existingGoodTx) {
+        const { error: txGoodErr } = await supabase.from('paper_transactions').update({
+          paper_type: editFormData.paperType,
+          qty: editCalculationPreview.goodA3,
+          transaction_category: 'GOOD',
+          description: `สั่งพิมพ์ล็อต: ${editFormData.lotName} (กระดาษดี, แก้ไข)`
+        }).eq('id', existingGoodTx.id);
+        if (txGoodErr) console.error("Failed to update good-paper stock", txGoodErr);
+      } else {
+        const { error: txGoodInsertErr } = await supabase.from('paper_transactions').insert({
+          reference_id: entryId,
+          transaction_type: 'OUT',
+          transaction_category: 'GOOD',
+          paper_type: editFormData.paperType,
+          qty: editCalculationPreview.goodA3,
+          date: editingEntry.date || editingEntry.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
+          description: `สั่งพิมพ์ล็อต: ${editFormData.lotName} (กระดาษดี, แก้ไข)`
+        });
+        if (txGoodInsertErr) console.error("Failed to insert good-paper stock", txGoodInsertErr);
+      }
+
+      if (editCalculationPreview.wasteA3 > 0) {
+        const { data: existingWasteTx } = await supabase
+          .from('paper_transactions')
+          .select('id')
+          .eq('reference_id', entryId)
+          .eq('transaction_type', 'OUT')
+          .eq('transaction_category', 'WASTE')
+          .maybeSingle();
+
+        if (existingWasteTx) {
+          const { error: txWasteErr } = await supabase.from('paper_transactions').update({
+            paper_type: editFormData.paperType,
+            qty: editCalculationPreview.wasteA3,
+            description: `สั่งพิมพ์ล็อต: ${editFormData.lotName} (กระดาษเสีย, แก้ไข)`
+          }).eq('id', existingWasteTx.id);
+          if (txWasteErr) console.error("Failed to update waste-paper stock", txWasteErr);
+        } else {
+          const { error: txWasteInsertErr } = await supabase.from('paper_transactions').insert({
+            reference_id: entryId,
+            transaction_type: 'OUT',
+            transaction_category: 'WASTE',
+            paper_type: editFormData.paperType,
+            qty: editCalculationPreview.wasteA3,
+            date: editingEntry.date || editingEntry.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
+            description: `สั่งพิมพ์ล็อต: ${editFormData.lotName} (กระดาษเสีย, แก้ไข)`
+          });
+          if (txWasteInsertErr) console.error("Failed to insert waste-paper stock", txWasteInsertErr);
+        }
+      } else {
+        // ไม่มีของเสยแล้ว ลบแถวกระดาษเสียเดิม (ถ้ามี) เพื่อคืนสต็อค
+        const { error: txWasteDelErr } = await supabase.from('paper_transactions')
+          .delete()
+          .eq('reference_id', entryId)
+          .eq('transaction_type', 'OUT')
+          .eq('transaction_category', 'WASTE');
+        if (txWasteDelErr) console.error("Failed to clear waste-paper stock", txWasteDelErr);
+      }
+
 
       logAction('UPDATE', 'dashboard', `แก้ไขคำสั่งพิมพ์ ล็อต ${editFormData.lotName}`, { entryId });
       alert("✅ บันทึกการแก้ไขสำเร็จ");
@@ -203,6 +325,7 @@ export default function Dashboard() {
           session.user.user_metadata?.name ||
           (email ? email.split('@')[0] : 'ผู้ใช้');
         setCurrentUser(displayName);
+        setCurrentUserId(session.user.id);
       }
     });
 
@@ -248,11 +371,6 @@ export default function Dashboard() {
     setIsLoadingOrders(true);
     setOrdersError(null);
     try {
-      const current = new Date();
-      const day = current.getDay();
-      const diff = current.getDate() - day + (day === 0 ? -6 : 1);
-      const startOfWeek = new Date(current.setDate(diff));
-      const dateString = startOfWeek.toISOString().split('T')[0];
 
       const PAGE_SIZE = 1000;
       let allData: any[] = [];
@@ -265,7 +383,6 @@ export default function Dashboard() {
             *,
             products ( name, qty_per_a3 )
           `)
-          .gte('date', dateString)
           .order('date', { ascending: false })
           .range(from, from + PAGE_SIZE - 1);
 
@@ -285,7 +402,6 @@ export default function Dashboard() {
           .from('paper_transactions')
           .select('reference_id, paper_type')
           .eq('transaction_type', 'OUT')
-          .gte('date', dateString)
           .range(txFrom, txFrom + PAGE_SIZE - 1);
 
         if (txError) throw txError;
@@ -504,6 +620,22 @@ export default function Dashboard() {
 
     return todayEntries.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [printOrders]);
+
+  // --- Daily Orders grouped by Paper Type (เพื่อแยกรายการตามประเภทกระดาษใหชัดเจน) ---
+  const dailyOrdersByPaperType = useMemo(() => {
+    const grouped: Record<string, typeof dailyOrders> = {};
+    dailyOrders.forEach(order => {
+      const pt = order.paperType || 'ไม่ระบุ';
+      if (!grouped[pt]) grouped[pt] = [];
+      grouped[pt].push(order);
+    });
+    // เรียงกลุ่มตามยอด A3 ใช้รวมมากไปน้อย เพื่อให้กระดาษที่ใช้เยอะสุดขึ้นก่อน
+    return Object.entries(grouped).sort(([, a], [, b]) => {
+      const sumA = a.reduce((s, o) => s + o.sheetsNeeded, 0);
+      const sumB = b.reduce((s, o) => s + o.sheetsNeeded, 0);
+      return sumB - sumA;
+    });
+  }, [dailyOrders]);
 
   // --- Weekly Summary (Per Department) ---
   const weeklySummary = useMemo(() => {
@@ -848,6 +980,42 @@ export default function Dashboard() {
     logAction('EXPORT', 'dashboard', `ส่งออก Excel ช่วงวันที่ ${orderDateRange}`, { fileName, dateRange: orderDateRange });
   };
 
+  // ── Helper: กำหนดสี badge ตามประเภทกระดาษ (hash ชื่อ → สีจากชุดที่กำหนด ไม่ต้อง hardcode รายชื่อกระดาษ) ──
+  const PAPER_TYPE_COLOR_PALETTE = [
+    { solid: 'bg-sky-600', light: 'bg-sky-50', text: 'text-sky-700', accent: 'border-sky-500' },
+    { solid: 'bg-emerald-600', light: 'bg-emerald-50', text: 'text-emerald-700', accent: 'border-emerald-500' },
+    { solid: 'bg-amber-600', light: 'bg-amber-50', text: 'text-amber-700', accent: 'border-amber-500' },
+    { solid: 'bg-violet-600', light: 'bg-violet-50', text: 'text-violet-700', accent: 'border-violet-500' },
+    { solid: 'bg-rose-600', light: 'bg-rose-50', text: 'text-rose-700', accent: 'border-rose-500' },
+    { solid: 'bg-cyan-600', light: 'bg-cyan-50', text: 'text-cyan-700', accent: 'border-cyan-500' },
+    { solid: 'bg-lime-600', light: 'bg-lime-50', text: 'text-lime-700', accent: 'border-lime-500' },
+    { solid: 'bg-fuchsia-600', light: 'bg-fuchsia-50', text: 'text-fuchsia-700', accent: 'border-fuchsia-500' },
+  ];
+
+  const getPaperTypeStyle = (paperType: string) => {
+    if (!paperType || paperType === 'ไม่ระบุ') {
+      return { solid: 'bg-slate-500', light: 'bg-slate-50', text: 'text-slate-600', accent: 'border-slate-400' };
+    }
+    let hash = 0;
+    for (let i = 0; i < paperType.length; i++) {
+      hash = (hash * 31 + paperType.charCodeAt(i)) >>> 0;
+    }
+    return PAPER_TYPE_COLOR_PALETTE[hash % PAPER_TYPE_COLOR_PALETTE.length];
+  };
+
+  // ── Helper: กำหนดสี badge ตามหน่วยงานโดยเฉพาะ ──
+  const getDepartmentStyle = (dept: string) => {
+    if (dept === 'ZT') {
+      return { solid: 'bg-emerald-600', light: 'bg-emerald-50', text: 'text-emerald-700', accent: 'border-emerald-500' }; // สีเขียว
+    }
+    if (dept === '13 ไร่') {
+      return { solid: 'bg-blue-600', light: 'bg-blue-50', text: 'text-blue-700', accent: 'border-blue-500' }; // สีน้ำเงิน
+    }
+    // สำหรับ "หน่วยงานอื่นๆ" หรือกรณีไม่ระบุ
+    return { solid: 'bg-slate-600', light: 'bg-slate-50', text: 'text-slate-700', accent: 'border-slate-500' };
+  };
+
+
   // ── Helper: คำนวณส่วนเกินต่อ entry ──
   const calcExcess = (entry: any): number => {
     const ratio = entry.products?.qty_per_a3 || 1;
@@ -871,102 +1039,23 @@ export default function Dashboard() {
 
         {/* Print Orders Section */}
         <div className="print-orders-section glass-panel w-full">
-          <div className="section-header">
-            <h2>สรุปยอดสั่งพิมพ์ (สัปดาห์ปัจจุบัน)</h2>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 px-6 py-6 mb-6 border-b border-slate-200/70">
+            <div>
+              <h2 className="text-2xl font-bold text-slate-800">สรุปยอดสั่งพิมพ์</h2>
+              <p className="text-sm text-slate-400 mt-1">สัปดาห์ปัจจุบัน</p>
+            </div>
             <div className="flex items-center gap-3">
               <button
                 onClick={handleExportExcel}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 hover:border-emerald-300 transition-colors shadow-sm"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 hover:border-emerald-300 hover:shadow-md transition-all shadow-sm"
               >
-                <span>📄</span> ส่งออก Excel
+                <span className="text-base">📄</span> ส่งออก Excel
               </button>
-              <Link href="/orders" className="text-sm text-accent-primary hover:underline">+ สั่งพิมพ์ใหม่</Link>
             </div>
           </div>
 
-          {/* === Daily A3 Summary (Today) === */}
-          <div className="mb-8">
-            <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-              <span className="text-2xl">📋</span> สรุปยอดกระดาษ A3 ประจำวัน
-              <span className="text-sm font-normal text-slate-500">({new Date().toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })})</span>
-            </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
-              <div className="rounded-xl border border-sky-200 bg-sky-50/80 backdrop-blur-sm p-5 text-center">
-                <div className="text-xs uppercase tracking-wider text-sky-600 font-semibold mb-1">A3 ใช้รวมวันนี้</div>
-                <div className="text-3xl font-bold text-sky-600">{dailySummary.totalSheets.toLocaleString()}</div>
-                <div className="text-sm text-sky-500 mt-0.5">ใบ</div>
-              </div>
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 backdrop-blur-sm p-5 text-center">
-                <div className="text-xs uppercase tracking-wider text-emerald-600 font-semibold mb-1">A3 ดี</div>
-                <div className="text-3xl font-bold text-emerald-600">{dailySummary.totalGood.toLocaleString()}</div>
-                <div className="text-sm text-emerald-500 mt-0.5">ใบ</div>
-              </div>
-              <div className="rounded-xl border border-red-200 bg-red-50/80 backdrop-blur-sm p-5 text-center">
-                <div className="text-xs uppercase tracking-wider text-red-600 font-semibold mb-1">A3 เสีย</div>
-                <div className="text-3xl font-bold text-red-500">{dailySummary.totalWaste.toLocaleString()}</div>
-                <div className="text-sm text-red-400 mt-0.5">ใบ</div>
-              </div>
-            </div>
-            {Object.keys(dailySummary.byDept).length > 0 && (
-              <div className="overflow-x-auto rounded-xl border border-slate-200/60 bg-white/70 backdrop-blur-md shadow-sm">
-                <table className="w-full text-sm text-left">
-                  <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200/60 text-slate-500 text-xs uppercase tracking-wider font-semibold">
-                      <th className="py-3 px-5">หน่วยงาน</th>
-                      <th className="py-3 px-5 text-right text-sky-600">A3 ใช้รวม</th>
-                      <th className="py-3 px-5 text-right text-emerald-600">A3 ดี</th>
-                      <th className="py-3 px-5 text-right text-red-600">A3 เสีย</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {Object.entries(dailySummary.byDept).map(([dept, data]) => (
-                      <tr key={dept} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="py-3 px-5 font-semibold text-slate-800">{dept}</td>
-                        <td className="py-3 px-5 text-right font-bold text-sky-500">{data.sheetsUsed.toLocaleString()} ใบ</td>
-                        <td className="py-3 px-5 text-right font-bold text-emerald-500">{data.sheetsGood.toLocaleString()} ใบ</td>
-                        <td className="py-3 px-5 text-right font-bold text-red-500">{data.sheetsWaste.toLocaleString()} ใบ</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            {Object.keys(dailySummary.byDept).length === 0 && (
-              <div className="text-center py-6 text-slate-400 text-sm bg-white/50 rounded-xl border border-slate-200/40">ยังไม่มีข้อมูลการสั่งพิมพ์ของวันนี้</div>
-            )}
 
-            {Object.keys(dailySummary.byPaperType).length > 0 && (
-              <div className="mt-4">
-                <h4 className="text-sm font-bold text-slate-700 mb-2 flex items-center gap-1.5">
-                  <span>📃</span> แยกตามประเภทกระดาษ (วันนี้)
-                </h4>
-                <div className="overflow-x-auto rounded-xl border border-slate-200/60 bg-white/70 backdrop-blur-md shadow-sm">
-                  <table className="w-full text-sm text-left">
-                    <thead>
-                      <tr className="bg-slate-50 border-b border-slate-200/60 text-slate-500 text-xs uppercase tracking-wider font-semibold">
-                        <th className="py-3 px-5">ประเภทกระดาษ</th>
-                        <th className="py-3 px-5 text-right text-sky-600">A3 ใช้รวม</th>
-                        <th className="py-3 px-5 text-right text-emerald-600">A3 ดี</th>
-                        <th className="py-3 px-5 text-right text-red-600">A3 เสีย</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {Object.entries(dailySummary.byPaperType).map(([pt, data]) => (
-                        <tr key={pt} className="hover:bg-slate-50/80 transition-colors">
-                          <td className="py-3 px-5 font-semibold text-slate-800">{pt}</td>
-                          <td className="py-3 px-5 text-right font-bold text-sky-500">{data.sheetsUsed.toLocaleString()} ใบ</td>
-                          <td className="py-3 px-5 text-right font-bold text-emerald-500">{data.sheetsGood.toLocaleString()} ใบ</td>
-                          <td className="py-3 px-5 text-right font-bold text-red-500">{data.sheetsWaste.toLocaleString()} ใบ</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* === Today's Orders List === */}
+          {/* === Today's Orders List (แยกตามประเภทกระดาษ) === */}
           <div className="mb-8">
             <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
               <span className="text-2xl">📝</span> รายการสั่งพิมพ์วันนี้
@@ -977,101 +1066,129 @@ export default function Dashboard() {
                 ยังไม่มีรายการสั่งพิมพ์ในวันนี้
               </div>
             ) : (
-              <div className="overflow-x-auto rounded-xl border border-slate-200/60 bg-white/70 backdrop-blur-md shadow-sm">
-                <table className="w-full text-sm text-left">
-                  <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200/60 text-slate-500 text-xs uppercase tracking-wider font-semibold">
-                      <th className="py-3 px-4">หน่วยงาน</th>
-                      <th className="py-3 px-4">Lot / สินค้า</th>
-                      <th className="py-3 px-4 text-right">เป้าหมาย</th>
-                      <th className="py-3 px-4 text-right text-sky-600">A3 ใช้</th>
-                      <th className="py-3 px-4 text-right text-red-500">ชิ้นเสีย</th>
-                      <th className="py-3 px-4 text-right text-red-400">A3 เสีย</th>
-                      <th className="py-3 px-4 text-right text-amber-600">ส่วนเกิน</th>
-                      <th className="py-3 px-4 text-slate-500 min-w-[140px]">หมายเหตุ</th>
-                      <th className="py-3 px-4 text-slate-500 ">กระดาษ</th>
-                      <th className="py-3 px-4 text-center w-24">จัดการ</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {dailyOrders.map(order => (
-                      <tr key={order.id} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="py-3 px-4 text-slate-600">{order.department}</td>
-                        <td className="py-3 px-4">
-                          <div className="font-semibold text-slate-800">{order.lotName}</div>
-                          <div className="text-xs text-slate-400">{order.productName}</div>
-                        </td>
-                        <td className="py-3 px-4 text-right font-medium text-slate-700">{order.targetQty.toLocaleString()}</td>
-                        <td className="py-3 px-4 text-right font-bold text-sky-600">{order.sheetsNeeded.toLocaleString()} ใบ</td>
-                        <td className="py-3 px-4 text-right">
-                          {order.wasteQty > 0 ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-red-100 text-red-700">{order.wasteQty.toLocaleString()} ชิ้น</span>
-                          ) : <span className="text-slate-300">-</span>}
-                        </td>
-                        <td className="py-3 px-4 text-right">
-                          {order.wasteA3 > 0 ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-red-50 text-red-500">{order.wasteA3.toLocaleString()} ใบ</span>
-                          ) : <span className="text-slate-300">-</span>}
-                        </td>
-                        <td className="py-3 px-4 text-right font-bold text-amber-500">
-                          {order.excessQty > 0 ? order.excessQty.toLocaleString() : <span className="text-slate-300">-</span>}
-                        </td>
-                        <td className="py-3 px-4 text-xs text-slate-500 max-w-[180px]">
-                          {!order.remark && !order.wasteQtyRemark && !order.wasteA3Remark
-                            ? <span className="text-slate-300">-</span>
-                            : <div className="flex flex-col gap-0.5">
-                              {order.wasteQtyRemark && (
-                                <span className="text-red-600">{order.wasteQtyRemark} (หมายเหตุจำนวนดวง)</span>
-                              )}
-                              {order.wasteA3Remark && (
-                                <span className="text-red-500">{order.wasteA3Remark} (หมายเหตุของจำนวน A3)</span>
-                              )}
-                              {order.remark && (
-                                <span className="text-amber-700 font-medium">{order.remark} (หมายเหตุรายละเอียดของคำสั่ง)</span>
-                              )}
-                            </div>
-                          }
-                        </td>
-                        <td className="py-3 px-4">
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
-                            {order.paperType}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          <div className="flex items-center justify-center gap-2">
-                            <button
-                              onClick={(e) => { e.stopPropagation(); handleOpenEdit(order); }}
-                              className="px-2.5 py-1.5 text-[11px] font-semibold text-sky-600 bg-sky-50 hover:bg-sky-500 hover:text-white rounded-lg transition-all shadow-sm border border-sky-200/50 flex items-center gap-1.5"
-                              title="แก้ไขรายการ"
-                            >
-                              <span>✏️</span> แก้ไข
-                            </button>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); handleDeleteEntry(order.id, order.lotName, order.sheetsNeeded); }}
-                              className="px-2.5 py-1.5 text-[11px] font-semibold text-red-500 bg-red-50 hover:bg-red-500 hover:text-white rounded-lg transition-all shadow-sm border border-red-200/50 flex items-center gap-1.5"
-                              title="ลบรายการ"
-                            >
-                              <span>🗑️</span> ลบ
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr className="bg-slate-100 font-bold text-slate-800 border-t-2 border-slate-300">
-                      <td className="py-3 px-4" colSpan={2}>รวม</td>
-                      <td className="py-3 px-4 text-right">{dailyOrders.reduce((s, o) => s + o.targetQty, 0).toLocaleString()}</td>
-                      <td className="py-3 px-4 text-right text-sky-600">{dailyOrders.reduce((s, o) => s + o.sheetsNeeded, 0).toLocaleString()} ใบ</td>
-                      <td className="py-3 px-4 text-right text-red-600">{dailyOrders.reduce((s, o) => s + o.wasteQty, 0) > 0 ? `${dailyOrders.reduce((s, o) => s + o.wasteQty, 0).toLocaleString()} ชิ้น` : '-'}</td>
-                      <td className="py-3 px-4 text-right text-red-500">{dailyOrders.reduce((s, o) => s + o.wasteA3, 0) > 0 ? `${dailyOrders.reduce((s, o) => s + o.wasteA3, 0).toLocaleString()} ใบ` : '-'}</td>
-                      <td className="py-3 px-4 text-right text-amber-600">{dailyOrders.reduce((s, o) => s + o.excessQty, 0).toLocaleString()}</td>
-                      <td className="py-3 px-4"></td>
-                      <td className="py-3 px-4"></td>
-                      <td className="py-3 px-4"></td>
-                    </tr>
-                  </tfoot>
-                </table>
+              <div className="flex flex-col gap-6">
+                {dailyOrdersByPaperType.map(([paperType, orders]) => {
+                  const style = getPaperTypeStyle(paperType);
+                  const groupTarget = orders.reduce((s, o) => s + o.targetQty, 0);
+                  const groupSheets = orders.reduce((s, o) => s + o.sheetsNeeded, 0);
+                  const groupWasteQty = orders.reduce((s, o) => s + o.wasteQty, 0);
+                  const groupWasteA3 = orders.reduce((s, o) => s + o.wasteA3, 0);
+                  const groupExcess = orders.reduce((s, o) => s + o.excessQty, 0);
+
+                  return (
+                    <div key={paperType} className={`overflow-hidden rounded-xl border-l-4 ${style.accent} border-t border-r border-b border-slate-200/60 bg-white shadow-md`}>
+                      <div className={`flex items-center justify-between px-5 py-3.5 ${style.solid}`}>
+                        <div className="flex items-center gap-2.5">
+                          <span className="text-lg leading-none">📄</span>
+                          <span className="font-bold text-sm text-white tracking-wide">{paperType}</span>
+                          <span className="text-xs text-white/70">({orders.length} รายการ)</span>
+                        </div>
+                        <span className="font-bold text-sm text-white bg-white/20 px-3 py-1 rounded-full">{groupSheets.toLocaleString()} ใบ</span>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left">
+                          <thead>
+                            <tr className={`${style.light} border-b border-slate-200/60 text-slate-500 text-xs uppercase tracking-wider font-semibold`}>
+
+                              <th className="py-3 px-4">หน่วยงาน</th>
+                              <th className="py-3 px-4">Lot / สินค้า</th>
+                              <th className="py-3 px-4 text-right">เป้าหมาย</th>
+                              <th className="py-3 px-4 text-right text-sky-600">A3 ใช้</th>
+                              <th className="py-3 px-4 text-right text-red-500">ชิ้นเสีย</th>
+                              <th className="py-3 px-4 text-right text-red-400">A3 เสีย</th>
+                              <th className="py-3 px-4 text-right text-amber-600">ส่วนเกิน</th>
+                              <th className="py-3 px-4 text-slate-500 min-w-[140px]">หมายเหตุ</th>
+                              <th className="py-3 px-4 text-center w-24">จัดการ</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {orders.map(order => (
+                              <tr key={order.id} className="hover:bg-slate-50/80 transition-colors">
+                                <td className="py-3 px-4 text-slate-600">{order.department}</td>
+                                <td className="py-3 px-4">
+                                  <div className="font-semibold text-slate-800">{order.lotName}</div>
+                                  <div className="text-xs text-slate-400">{order.productName}</div>
+                                </td>
+                                <td className="py-3 px-4 text-right font-medium text-slate-700">{order.targetQty.toLocaleString()}</td>
+                                <td className="py-3 px-4 text-right font-bold text-sky-600">{order.sheetsNeeded.toLocaleString()} ใบ</td>
+                                <td className="py-3 px-4 text-right">
+                                  {order.wasteQty > 0 ? (
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-red-100 text-red-700">{order.wasteQty.toLocaleString()} ชิ้น</span>
+                                  ) : <span className="text-slate-300">-</span>}
+                                </td>
+                                <td className="py-3 px-4 text-right">
+                                  {order.wasteA3 > 0 ? (
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-red-50 text-red-500">{order.wasteA3.toLocaleString()} ใบ</span>
+                                  ) : <span className="text-slate-300">-</span>}
+                                </td>
+                                <td className="py-3 px-4 text-right font-bold text-amber-500">
+                                  {order.excessQty > 0 ? order.excessQty.toLocaleString() : <span className="text-slate-300">-</span>}
+                                </td>
+                                <td className="py-3 px-4 text-xs text-slate-500 max-w-[180px]">
+                                  {!order.remark && !order.wasteQtyRemark && !order.wasteA3Remark
+                                    ? <span className="text-slate-300">-</span>
+                                    : <div className="flex flex-col gap-0.5">
+                                      {order.wasteQtyRemark && (
+                                        <span className="text-red-600">{order.wasteQtyRemark} (หมายเหตุจำนวนดวง)</span>
+                                      )}
+                                      {order.wasteA3Remark && (
+                                        <span className="text-red-500">{order.wasteA3Remark} (หมายเหตุของจำนวน A3)</span>
+                                      )}
+                                      {order.remark && (
+                                        <span className="text-amber-700 font-medium">{order.remark} (หมายเหตุรายละเอียดของคำสั่ง)</span>
+                                      )}
+                                    </div>
+                                  }
+                                </td>
+                                <td className="py-3 px-4 text-center">
+                                  <div className="flex items-center justify-center gap-2">
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); handleOpenEdit(order); }}
+                                      className="px-2.5 py-1.5 text-[11px] font-semibold text-sky-600 bg-sky-50 hover:bg-sky-500 hover:text-white rounded-lg transition-all shadow-sm border border-sky-200/50 flex items-center gap-1.5"
+                                      title="แก้ไขรายการ"
+                                    >
+                                      <span>✏️</span> แก้ไข
+                                    </button>
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); handleDeleteEntry(order.id, order.lotName, order.sheetsNeeded); }}
+                                      className="px-2.5 py-1.5 text-[11px] font-semibold text-red-500 bg-red-50 hover:bg-red-500 hover:text-white rounded-lg transition-all shadow-sm border border-red-200/50 flex items-center gap-1.5"
+                                      title="ลบรายการ"
+                                    >
+                                      <span>🗑️</span> ลบ
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot>
+                            <tr className="bg-slate-100 font-bold text-slate-800 border-t-2 border-slate-300">
+                              <td className="py-3 px-4" colSpan={2}>รวม ({paperType})</td>
+                              <td className="py-3 px-4 text-right">{groupTarget.toLocaleString()}</td>
+                              <td className="py-3 px-4 text-right text-sky-600">{groupSheets.toLocaleString()} ใบ</td>
+                              <td className="py-3 px-4 text-right text-red-600">{groupWasteQty > 0 ? `${groupWasteQty.toLocaleString()} ชิ้น` : '-'}</td>
+                              <td className="py-3 px-4 text-right text-red-500">{groupWasteA3 > 0 ? `${groupWasteA3.toLocaleString()} ใบ` : '-'}</td>
+                              <td className="py-3 px-4 text-right text-amber-600">{groupExcess.toLocaleString()}</td>
+                              <td className="py-3 px-4"></td>
+                              <td className="py-3 px-4"></td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* รวมทั้งหมดทุกประเภทกระดาษ */}
+                <div className="rounded-xl border border-slate-300 bg-slate-100 px-5 py-3 flex flex-wrap justify-between items-center gap-2">
+                  <span className="font-bold text-slate-800">รวมทั้งหมดวันนี้</span>
+                  <div className="flex gap-4 text-sm">
+                    <span className="text-slate-600">เป้าหมาย <strong>{dailyOrders.reduce((s, o) => s + o.targetQty, 0).toLocaleString()}</strong></span>
+                    <span className="text-sky-600">A3 ใช้ <strong>{dailyOrders.reduce((s, o) => s + o.sheetsNeeded, 0).toLocaleString()} ใบ</strong></span>
+                    <span className="text-red-500">A3 เสีย <strong>{dailyOrders.reduce((s, o) => s + o.wasteA3, 0).toLocaleString()} ใบ</strong></span>
+                    <span className="text-amber-600">ส่วนเกิน <strong>{dailyOrders.reduce((s, o) => s + o.excessQty, 0).toLocaleString()}</strong></span>
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -1083,50 +1200,50 @@ export default function Dashboard() {
               <span className="text-sm font-normal text-slate-500">(สัปดาห์ปัจจุบัน)</span>
             </h3>
             {Object.keys(weeklySummary.byDept).length > 0 ? (
-              <div className="overflow-x-auto rounded-xl border border-slate-200/60 bg-white/70 backdrop-blur-md shadow-sm">
-                <table className="w-full text-sm text-left min-w-[800px]">
-                  <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200/60 text-slate-500 text-xs uppercase tracking-wider font-semibold">
-                      <th className="py-3 px-5">หน่วยงาน</th>
-                      <th className="py-3 px-5 text-right">ยอดสั่ง (ชิ้น)</th>
-                      <th className="py-3 px-5 text-right text-sky-600">A3 ใช้รวม</th>
-                      <th className="py-3 px-5 text-right text-emerald-600">A3 ดี</th>
-                      <th className="py-3 px-5 text-right text-red-600">A3 เสีย</th>
-                      <th className="py-3 px-5 text-right text-red-600">ชิ้นเสีย</th>
-                      <th className="py-3 px-5 text-right text-amber-600">ส่วนเกิน (ชิ้น)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {Object.entries(weeklySummary.byDept).map(([dept, data]) => (
-                      <tr key={dept} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="py-3 px-5"><span className="font-bold text-slate-800">{dept}</span></td>
-                        <td className="py-3 px-5 text-right font-medium text-slate-700">{data.targetQty.toLocaleString()}</td>
-                        <td className="py-3 px-5 text-right font-bold text-sky-500">{data.sheetsUsed.toLocaleString()} ใบ</td>
-                        <td className="py-3 px-5 text-right font-bold text-emerald-500">{data.sheetsGood.toLocaleString()} ใบ</td>
-                        <td className="py-3 px-5 text-right">
-                          {data.sheetsWaste > 0 ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-red-100 text-red-700">{data.sheetsWaste.toLocaleString()} ใบ</span>
-                          ) : <span className="text-slate-300">-</span>}
-                        </td>
-                        <td className="py-3 px-5 text-right">
-                          {data.wasteQty > 0 ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-red-100 text-red-700">{data.wasteQty.toLocaleString()} ชิ้น</span>
-                          ) : <span className="text-slate-300">-</span>}
-                        </td>
-                        <td className="py-3 px-5 text-right font-bold text-amber-500">{data.excessQty.toLocaleString()}</td>
-                      </tr>
-                    ))}
-                    <tr className="bg-slate-100 font-bold text-slate-800 border-t-2 border-slate-300">
-                      <td className="py-3 px-5">รวมทั้งหมด</td>
-                      <td className="py-3 px-5 text-right">{Object.values(weeklySummary.byDept).reduce((s, d) => s + d.targetQty, 0).toLocaleString()}</td>
-                      <td className="py-3 px-5 text-right text-sky-600">{Object.values(weeklySummary.byDept).reduce((s, d) => s + d.sheetsUsed, 0).toLocaleString()} ใบ</td>
-                      <td className="py-3 px-5 text-right text-emerald-600">{Object.values(weeklySummary.byDept).reduce((s, d) => s + d.sheetsGood, 0).toLocaleString()} ใบ</td>
-                      <td className="py-3 px-5 text-right text-red-600">{Object.values(weeklySummary.byDept).reduce((s, d) => s + d.sheetsWaste, 0).toLocaleString()} ใบ</td>
-                      <td className="py-3 px-5 text-right text-red-600">{Object.values(weeklySummary.byDept).reduce((s, d) => s + d.wasteQty, 0).toLocaleString()} ชิ้น</td>
-                      <td className="py-3 px-5 text-right text-amber-600">{Object.values(weeklySummary.byDept).reduce((s, d) => s + d.excessQty, 0).toLocaleString()}</td>
-                    </tr>
-                  </tbody>
-                </table>
+              <div className="flex flex-col gap-4">
+                {Object.entries(weeklySummary.byDept).map(([dept, data]) => {
+                  const style = getDepartmentStyle(dept);
+                  return (
+                    <div key={dept} className={`overflow-hidden rounded-xl border-l-4 ${style.accent} border-t border-r border-b border-slate-200/60 bg-white shadow-md`}>
+                      <div className={`flex items-center justify-between px-5 py-3.5 ${style.solid}`}>
+                        <span className="font-bold text-sm text-white tracking-wide">{dept}</span>
+                        <span className="font-bold text-sm text-white bg-white/20 px-3 py-1 rounded-full">{data.sheetsUsed.toLocaleString()} ใบ</span>
+                      </div>
+                      <div className={`grid grid-cols-2 sm:grid-cols-5 gap-3 px-5 py-4 ${style.light}`}>
+                        <div>
+                          <div className="text-xs text-slate-500">ยอดสั่ง</div>
+                          <div className="font-bold text-slate-800">{data.targetQty.toLocaleString()} ชิ้น</div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-slate-500">A3 ดี</div>
+                          <div className="font-bold text-emerald-600">{data.sheetsGood.toLocaleString()} ใบ</div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-slate-500">A3 เสีย</div>
+                          <div className="font-bold text-red-600">{data.sheetsWaste > 0 ? `${data.sheetsWaste.toLocaleString()} ใบ` : '-'}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-slate-500">ชิ้นเสีย</div>
+                          <div className="font-bold text-red-600">{data.wasteQty > 0 ? `${data.wasteQty.toLocaleString()} ชิ้น` : '-'}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-slate-500">ส่วนเกิน</div>
+                          <div className="font-bold text-amber-600">{data.excessQty.toLocaleString()}</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                <div className="rounded-xl border border-slate-300 bg-slate-100 px-5 py-3 flex flex-wrap justify-between items-center gap-2">
+                  <span className="font-bold text-slate-800">รวมทั้งหมด</span>
+                  <div className="flex flex-wrap gap-4 text-sm">
+                    <span className="text-slate-600">ยอดสั่ง <strong>{Object.values(weeklySummary.byDept).reduce((s, d) => s + d.targetQty, 0).toLocaleString()}</strong></span>
+                    <span className="text-sky-600">A3 ใช้รวม <strong>{Object.values(weeklySummary.byDept).reduce((s, d) => s + d.sheetsUsed, 0).toLocaleString()} ใบ</strong></span>
+                    <span className="text-emerald-600">A3 ดี <strong>{Object.values(weeklySummary.byDept).reduce((s, d) => s + d.sheetsGood, 0).toLocaleString()} ใบ</strong></span>
+                    <span className="text-red-600">A3 เสีย <strong>{Object.values(weeklySummary.byDept).reduce((s, d) => s + d.sheetsWaste, 0).toLocaleString()} ใบ</strong></span>
+                    <span className="text-amber-600">ส่วนเกิน <strong>{Object.values(weeklySummary.byDept).reduce((s, d) => s + d.excessQty, 0).toLocaleString()}</strong></span>
+                  </div>
+                </div>
               </div>
             ) : (
               <div className="text-center py-6 text-slate-400 text-sm bg-white/50 rounded-xl border border-slate-200/40">ยังไม่มีข้อมูลในสัปดาห์นี้</div>
@@ -1137,27 +1254,28 @@ export default function Dashboard() {
                 <h4 className="text-sm font-bold text-slate-700 mb-2 flex items-center gap-1.5">
                   <span>📃</span> แยกตามประเภทกระดาษ (สัปดาห์ปัจจุบัน)
                 </h4>
-                <div className="overflow-x-auto rounded-xl border border-slate-200/60 bg-white/70 backdrop-blur-md shadow-sm">
-                  <table className="w-full text-sm text-left">
-                    <thead>
-                      <tr className="bg-slate-50 border-b border-slate-200/60 text-slate-500 text-xs uppercase tracking-wider font-semibold">
-                        <th className="py-3 px-5">ประเภทกระดาษ</th>
-                        <th className="py-3 px-5 text-right text-sky-600">A3 ใช้รวม</th>
-                        <th className="py-3 px-5 text-right text-emerald-600">A3 ดี</th>
-                        <th className="py-3 px-5 text-right text-red-600">A3 เสีย</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {Object.entries(weeklySummary.byPaperType).map(([pt, data]) => (
-                        <tr key={pt} className="hover:bg-slate-50/80 transition-colors">
-                          <td className="py-3 px-5 font-semibold text-slate-800">{pt}</td>
-                          <td className="py-3 px-5 text-right font-bold text-sky-500">{data.sheetsUsed.toLocaleString()} ใบ</td>
-                          <td className="py-3 px-5 text-right font-bold text-emerald-500">{data.sheetsGood.toLocaleString()} ใบ</td>
-                          <td className="py-3 px-5 text-right font-bold text-red-500">{data.sheetsWaste.toLocaleString()} ใบ</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="flex flex-col gap-3">
+                  {Object.entries(weeklySummary.byPaperType).map(([pt, data]) => {
+                    const style = getPaperTypeStyle(pt);
+                    return (
+                      <div key={pt} className={`overflow-hidden rounded-xl border-l-4 ${style.accent} border-t border-r border-b border-slate-200/60 bg-white shadow-sm`}>
+                        <div className={`flex items-center justify-between px-5 py-3 ${style.solid}`}>
+                          <span className="font-bold text-sm text-white tracking-wide">{pt}</span>
+                          <span className="font-bold text-sm text-white bg-white/20 px-3 py-1 rounded-full">{data.sheetsUsed.toLocaleString()} ใบ</span>
+                        </div>
+                        <div className={`grid grid-cols-2 gap-3 px-5 py-3 ${style.light}`}>
+                          <div>
+                            <div className="text-xs text-slate-500">A3 ดี</div>
+                            <div className="font-bold text-emerald-600">{data.sheetsGood.toLocaleString()} ใบ</div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-slate-500">A3 เสีย</div>
+                            <div className="font-bold text-red-600">{data.sheetsWaste.toLocaleString()} ใบ</div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -1177,23 +1295,19 @@ export default function Dashboard() {
                       <span className="font-bold text-slate-700 text-sm">{day.dateLabel}</span>
                       <span className="text-sky-600 font-bold text-sm bg-sky-50 px-2 py-0.5 rounded-full border border-sky-100">{day.totalSheets.toLocaleString()} ใบ</span>
                     </div>
-                    <div className="flex-1">
-                      <table className="w-full text-xs text-left">
-                        <thead>
-                          <tr className="bg-white/50 border-b border-slate-100 text-slate-400 text-[10px] uppercase tracking-wider font-semibold">
-                            <th className="py-2 px-4">ประเภทกระดาษ</th>
-                            <th className="py-2 px-4 text-right">จำนวน (ใบ)</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100/50">
-                          {day.types.map((t) => (
-                            <tr key={t.name} className="hover:bg-slate-50/50 transition-colors">
-                              <td className="py-2 px-4 text-slate-700 font-medium">{t.name}</td>
-                              <td className="py-2 px-4 text-right font-bold text-slate-800">{t.qty.toLocaleString()} ใบ</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                    <div className="flex-1 divide-y divide-slate-100/50">
+                      {day.types.map((t) => {
+                        const style = getPaperTypeStyle(t.name);
+                        return (
+                          <div key={t.name} className={`flex items-center justify-between px-4 py-2 ${style.light}`}>
+                            <span className={`flex items-center gap-2 text-xs font-medium ${style.text}`}>
+                              <span className={`w-2 h-2 rounded-full ${style.solid}`}></span>
+                              {t.name}
+                            </span>
+                            <span className="text-xs font-bold text-slate-800">{t.qty.toLocaleString()} ใบ</span>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 ))}
@@ -1212,153 +1326,158 @@ export default function Dashboard() {
             {isLoadingOrders && printOrders.length === 0 ? (
               <div className="text-center py-8 text-muted">กำลังโหลดข้อมูล...</div>
             ) : Object.keys(ordersByDepartment).length > 0 ? (
-              Object.entries(ordersByDepartment).map(([dept, orders]) => (
-                <div key={dept} className="department-block mb-10 last:mb-0">
-                  <h3 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
-                    <span className="bg-accent-subtle/40 px-3 py-1 rounded-md text-accent-primary border border-accent-primary/20">{dept}</span>
-                  </h3>
+              Object.entries(ordersByDepartment).map(([dept, orders]) => {
+                const deptStyle = getDepartmentStyle(dept);
+                const deptTotalSheets = orders.reduce((s, o) => s + o.sheetsNeeded, 0);
+                return (
+                  <div key={dept} className={`department-block mb-10 last:mb-0 overflow-hidden rounded-xl border-l-4 ${deptStyle.accent} border-t border-r border-b border-slate-200/60 bg-white shadow-md`}>
+                    <div className={`flex items-center justify-between px-5 py-3.5 ${deptStyle.solid}`}>
+                      <span className="font-bold text-lg text-white tracking-wide">{dept}</span>
+                      <span className="font-bold text-sm text-white bg-white/20 px-3 py-1 rounded-full">{deptTotalSheets.toLocaleString()} ใบ</span>
+                    </div>
 
-                  <div className="overflow-x-auto rounded-xl border border-slate-200/60 bg-white/70 backdrop-blur-md shadow-sm">
-                    <table className="w-full text-left whitespace-nowrap min-w-[1000px]">
-                      <thead>
-                        <tr className="bg-slate-50 border-b border-slate-200/60 text-slate-500 text-xs uppercase tracking-wider font-semibold">
-                          <th className="py-4 px-6 w-1/4">Lot: สินค้า</th>
-                          <th className="py-4 px-6 text-right w-32">เป้ารวม</th>
-                          <th className="py-4 px-6 text-right text-sky-600 w-32">A3 ใช้รวม</th>
-                          <th className="py-4 px-6 text-right text-emerald-600 w-32">A3 ดีสะสม</th>
-                          <th className="py-4 px-6 text-right text-amber-600 w-32">ส่วนเกิน</th>
-                          <th className="py-4 px-6 text-right text-red-600 w-32">ของเสียสะสม</th>
-                          <th className="py-4 px-6 min-w-[150px]">หมายเหตุ</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {orders.map((order) => {
-                          const hasWaste = order.wasteQty > 0 || order.wasteA3 > 0;
-                          const isExpanded = expandedGroups[order.id];
-                          return (
-                            <React.Fragment key={order.id}>
-                              <tr
-                                className={`group cursor-pointer transition-colors hover:bg-slate-50/80 ${isExpanded ? 'bg-slate-50/50' : 'bg-transparent'}`}
-                                onClick={() => toggleGroup(order.id)}
-                              >
-                                <td className="py-4 px-6">
-                                  <div className="flex items-center gap-3">
-                                    <span className={`text-slate-400 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}>▶</span>
-                                    <div>
-                                      <div className="font-bold text-slate-800 text-base">{order.lotName}</div>
-                                      <div className="text-slate-500 text-sm mt-0.5">{order.productName}</div>
-                                    </div>
-                                  </div>
-                                </td>
-                                <td className="py-4 px-6 text-right font-medium text-slate-700">{order.targetQty.toLocaleString()}</td>
-                                <td className="py-4 px-6 text-right font-bold text-sky-500">{order.sheetsNeeded.toLocaleString()} ใบ</td>
-                                <td className="py-4 px-6 text-right font-bold text-emerald-500">{(order.sheetsNeeded - order.wasteA3).toLocaleString()} ใบ</td>
-                                <td className="py-4 px-6 text-right font-bold text-amber-500">{order.excessQty.toLocaleString()} ชิ้น</td>
-                                <td className="py-4 px-6 text-right">
-                                  {hasWaste ? (
-                                    <div className="flex flex-col items-end gap-1">
-                                      {order.wasteQty > 0 && <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-red-100 text-red-700">{order.wasteQty} ชิ้น</span>}
-                                      {order.wasteA3 > 0 && <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-red-100 text-red-700">{order.wasteA3} ใบ (A3)</span>}
-                                    </div>
-                                  ) : (
-                                    <span className="text-slate-300">-</span>
-                                  )}
-                                </td>
-                                <td className="py-4 px-6 text-sm text-slate-500 max-w-[200px] truncate">
-                                  {order.remarks.length > 0 ? (
-                                    <ul className="list-disc list-inside">
-                                      {order.remarks.map((r, i) => <li key={i} className="truncate">{r}</li>)}
-                                    </ul>
-                                  ) : "-"}
-                                </td>
-                              </tr>
-                              {isExpanded && (
-                                <tr>
-                                  <td colSpan={8} className="p-0 border-b border-transparent">
-                                    <div className="bg-slate-50/80 px-8 py-5 shadow-inner">
-                                      <div className="flex items-center justify-between mb-3 border-b border-slate-200 pb-2">
-                                        <h4 className="text-sm font-bold text-slate-700">รายการย่อย</h4>
-                                      </div>
-                                      <div className="overflow-x-auto">
-                                        <table className="w-full text-sm text-left">
-                                          <thead>
-                                            <tr className="text-xs text-slate-500 font-medium">
-                                              <th className="py-2 px-3 w-40">วันที่-เวลา</th>
-                                              <th className="py-2 px-3 text-right">เป้ารวม</th>
-                                              <th className="py-2 px-3 text-right">A3 ใช้รวม</th>
-                                              <th className="py-2 px-3 text-right">ของเสีย</th>
-                                              <th className="py-2 px-3 text-right text-amber-600">ส่วนเกิน</th>
-                                              <th className="py-2 px-3">หมายเหตุ</th>
-                                              <th className="py-2 px-3 text-center w-24">จัดการ</th>
-                                            </tr>
-                                          </thead>
-                                          <tbody className="divide-y divide-slate-200/60">
-                                            {order.entries.map((entry: any) => {
-                                              const entryExcess = calcExcess(entry);
-                                              return (
-                                                <tr key={entry.id} className="hover:bg-white transition-colors">
-                                                  <td className="py-2.5 px-3 text-slate-600">
-                                                    {new Date(entry.created_at).toLocaleString('th-TH', { hour12: false, month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                                                  </td>
-                                                  <td className="py-2.5 px-3 text-right font-medium text-slate-700">{entry.target_qty}</td>
-                                                  <td className="py-2.5 px-3 text-right text-sky-500 font-semibold">{entry.sheets_needed} ใบ</td>
-                                                  <td className="py-2.5 px-3 text-right">
-                                                    {(entry.waste_qty > 0 || entry.waste_a3 > 0) ? (
-                                                      <div className="flex flex-col items-end gap-1 text-xs">
-                                                        {entry.waste_qty > 0 && <span className="text-red-500 font-medium">{entry.waste_qty} ชิ้น</span>}
-                                                        {entry.waste_a3 > 0 && <span className="text-red-500 font-medium">{entry.waste_a3} ใบ (A3)</span>}
-                                                      </div>
-                                                    ) : (
-                                                      <span className="text-slate-300">-</span>
-                                                    )}
-                                                  </td>
-                                                  <td className="py-2.5 px-3 text-right">
-                                                    {entryExcess > 0
-                                                      ? <span className="font-bold text-amber-500">{entryExcess.toLocaleString()} ชิ้น</span>
-                                                      : <span className="text-slate-300">-</span>
-                                                    }
-                                                  </td>
-                                                  <td className="py-2.5 px-3 text-xs text-slate-500 max-w-[200px]">
-                                                    {entry.waste_qty_remark && <div className="truncate text-slate-600">• {entry.waste_qty_remark} (หมายเหตุของจำนวนชิ้น)</div>}
-                                                    {entry.waste_a3_remark && <div className="truncate text-slate-600">• {entry.waste_a3_remark} (หมายเหตุของจำนวน A3)</div>}
-                                                    {entry.remark && <div className="truncate text-amber-700 font-medium">• {entry.remark} (หมายเหตุรายละเอียดของคำสั่ง)</div>}
-                                                  </td>
-                                                  <td className="py-2.5 px-3 text-center">
-                                                    <div className="flex items-center justify-center gap-2">
-                                                      <button
-                                                        onClick={(e) => { e.stopPropagation(); handleOpenEdit(entry); }}
-                                                        className="px-2 py-1 text-[11px] font-medium text-sky-600 bg-sky-50 hover:bg-sky-500 hover:text-white rounded-md transition-all shadow-sm border border-sky-200/30 flex items-center gap-1"
-                                                        title="แก้ไขรายการ"
-                                                      >
-                                                        <span>✏️</span> แก้ไข
-                                                      </button>
-                                                      <button
-                                                        onClick={(e) => { e.stopPropagation(); handleDeleteEntry(entry.id, entry.lot_name, entry.sheets_needed); }}
-                                                        className="px-2 py-1 text-[11px] font-medium text-red-500 bg-red-50 hover:bg-red-500 hover:text-white rounded-md transition-all shadow-sm border border-red-200/30 flex items-center gap-1"
-                                                        title="ลบรายการ"
-                                                      >
-                                                        <span>🗑️</span> ลบ
-                                                      </button>
-                                                    </div>
-                                                  </td>
-                                                </tr>
-                                              );
-                                            })}
-                                          </tbody>
-                                        </table>
+                    <div className="overflow-x-auto bg-white/70 backdrop-blur-md">
+                      <table className="w-full text-left whitespace-nowrap min-w-[1000px]">
+                        <thead>
+                          <tr className="bg-slate-50 border-b border-slate-200/60 text-slate-500 text-xs uppercase tracking-wider font-semibold">
+                            <th className="py-4 px-6 w-1/4">Lot: สินค้า</th>
+                            <th className="py-4 px-6 text-right w-32">เป้ารวม</th>
+                            <th className="py-4 px-6 text-right text-sky-600 w-32">A3 ใช้รวม</th>
+                            <th className="py-4 px-6 text-right text-emerald-600 w-32">A3 ดีสะสม</th>
+                            <th className="py-4 px-6 text-right text-amber-600 w-32">ส่วนเกิน</th>
+                            <th className="py-4 px-6 text-right text-red-600 w-32">ของเสียสะสม</th>
+                            <th className="py-4 px-6 min-w-[150px]">หมายเหตุ</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {orders.map((order) => {
+                            const hasWaste = order.wasteQty > 0 || order.wasteA3 > 0;
+                            const isExpanded = expandedGroups[order.id];
+                            return (
+                              <React.Fragment key={order.id}>
+                                <tr
+                                  className={`group cursor-pointer transition-colors hover:bg-slate-50/80 ${isExpanded ? 'bg-slate-50/50' : 'bg-transparent'}`}
+                                  onClick={() => toggleGroup(order.id)}
+                                >
+                                  <td className="py-4 px-6">
+                                    <div className="flex items-center gap-3">
+                                      <span className={`text-slate-400 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}>▶</span>
+                                      <div>
+                                        <div className="font-bold text-slate-800 text-base">{order.lotName}</div>
+                                        <div className="text-slate-500 text-sm mt-0.5">{order.productName}</div>
                                       </div>
                                     </div>
                                   </td>
+                                  <td className="py-4 px-6 text-right font-medium text-slate-700">{order.targetQty.toLocaleString()}</td>
+                                  <td className="py-4 px-6 text-right font-bold text-sky-500">{order.sheetsNeeded.toLocaleString()} ใบ</td>
+                                  <td className="py-4 px-6 text-right font-bold text-emerald-500">{(order.sheetsNeeded - order.wasteA3).toLocaleString()} ใบ</td>
+                                  <td className="py-4 px-6 text-right font-bold text-amber-500">{order.excessQty.toLocaleString()} ชิ้น</td>
+                                  <td className="py-4 px-6 text-right">
+                                    {hasWaste ? (
+                                      <div className="flex flex-col items-end gap-1">
+                                        {order.wasteQty > 0 && <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-red-100 text-red-700">{order.wasteQty} ชิ้น</span>}
+                                        {order.wasteA3 > 0 && <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-red-100 text-red-700">{order.wasteA3} ใบ (A3)</span>}
+                                      </div>
+                                    ) : (
+                                      <span className="text-slate-300">-</span>
+                                    )}
+                                  </td>
+                                  <td className="py-4 px-6 text-sm text-slate-500 max-w-[200px] truncate">
+                                    {order.remarks.length > 0 ? (
+                                      <ul className="list-disc list-inside">
+                                        {order.remarks.map((r, i) => <li key={i} className="truncate">{r}</li>)}
+                                      </ul>
+                                    ) : "-"}
+                                  </td>
                                 </tr>
-                              )}
-                            </React.Fragment>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                                {isExpanded && (
+                                  <tr>
+                                    <td colSpan={8} className="p-0 border-b border-transparent">
+                                      <div className="bg-slate-50/80 px-8 py-5 shadow-inner">
+                                        <div className="flex items-center justify-between mb-3 border-b border-slate-200 pb-2">
+                                          <h4 className="text-sm font-bold text-slate-700">รายการย่อย</h4>
+                                        </div>
+                                        <div className="overflow-x-auto">
+                                          <table className="w-full text-sm text-left">
+                                            <thead>
+                                              <tr className="text-xs text-slate-500 font-medium">
+                                                <th className="py-2 px-3 w-40">วันที่-เวลา</th>
+                                                <th className="py-2 px-3 text-right">เป้ารวม</th>
+                                                <th className="py-2 px-3 text-right">A3 ใช้รวม</th>
+                                                <th className="py-2 px-3 text-right">ของเสีย</th>
+                                                <th className="py-2 px-3 text-right text-amber-600">ส่วนเกิน</th>
+                                                <th className="py-2 px-3">หมายเหตุ</th>
+                                                <th className="py-2 px-3 text-center w-24">จัดการ</th>
+                                              </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-200/60">
+                                              {order.entries.map((entry: any) => {
+                                                const entryExcess = calcExcess(entry);
+                                                return (
+                                                  <tr key={entry.id} className="hover:bg-white transition-colors">
+                                                    <td className="py-2.5 px-3 text-slate-600">
+                                                      {new Date(entry.created_at).toLocaleString('th-TH', { hour12: false, month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                                    </td>
+                                                    <td className="py-2.5 px-3 text-right font-medium text-slate-700">{entry.target_qty}</td>
+                                                    <td className="py-2.5 px-3 text-right text-sky-500 font-semibold">{entry.sheets_needed} ใบ</td>
+                                                    <td className="py-2.5 px-3 text-right">
+                                                      {(entry.waste_qty > 0 || entry.waste_a3 > 0) ? (
+                                                        <div className="flex flex-col items-end gap-1 text-xs">
+                                                          {entry.waste_qty > 0 && <span className="text-red-500 font-medium">{entry.waste_qty} ชิ้น</span>}
+                                                          {entry.waste_a3 > 0 && <span className="text-red-500 font-medium">{entry.waste_a3} ใบ (A3)</span>}
+                                                        </div>
+                                                      ) : (
+                                                        <span className="text-slate-300">-</span>
+                                                      )}
+                                                    </td>
+                                                    <td className="py-2.5 px-3 text-right">
+                                                      {entryExcess > 0
+                                                        ? <span className="font-bold text-amber-500">{entryExcess.toLocaleString()} ชิ้น</span>
+                                                        : <span className="text-slate-300">-</span>
+                                                      }
+                                                    </td>
+                                                    <td className="py-2.5 px-3 text-xs text-slate-500 max-w-[200px]">
+                                                      {entry.waste_qty_remark && <div className="truncate text-slate-600">• {entry.waste_qty_remark} (หมายเหตุของจำนวนชิ้น)</div>}
+                                                      {entry.waste_a3_remark && <div className="truncate text-slate-600">• {entry.waste_a3_remark} (หมายเหตุของจำนวน A3)</div>}
+                                                      {entry.remark && <div className="truncate text-amber-700 font-medium">• {entry.remark} (หมายเหตุรายละเอียดของคำสั่ง)</div>}
+                                                    </td>
+                                                    <td className="py-2.5 px-3 text-center">
+                                                      <div className="flex items-center justify-center gap-2">
+                                                        <button
+                                                          onClick={(e) => { e.stopPropagation(); handleOpenEdit(entry); }}
+                                                          className="px-2 py-1 text-[11px] font-medium text-sky-600 bg-sky-50 hover:bg-sky-500 hover:text-white rounded-md transition-all shadow-sm border border-sky-200/30 flex items-center gap-1"
+                                                          title="แก้ไขรายการ"
+                                                        >
+                                                          <span>✏️</span> แก้ไข
+                                                        </button>
+                                                        <button
+                                                          onClick={(e) => { e.stopPropagation(); handleDeleteEntry(entry.id, entry.lot_name, entry.sheets_needed); }}
+                                                          className="px-2 py-1 text-[11px] font-medium text-red-500 bg-red-50 hover:bg-red-500 hover:text-white rounded-md transition-all shadow-sm border border-red-200/30 flex items-center gap-1"
+                                                          title="ลบรายการ"
+                                                        >
+                                                          <span>🗑️</span> ลบ
+                                                        </button>
+                                                      </div>
+                                                    </td>
+                                                  </tr>
+                                                );
+                                              })}
+                                            </tbody>
+                                          </table>
+                                        </div>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                              </React.Fragment>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             ) : null}
 
             {printOrders.length === 0 && !isLoadingOrders && !ordersError && (
@@ -1436,17 +1555,69 @@ export default function Dashboard() {
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-slate-600 mb-1">สินค้า</label>
-                      <select
-                        className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-sky-500"
-                        value={editFormData.productId}
-                        onChange={(e) => setEditFormData({ ...editFormData, productId: e.target.value })}
-                        required
-                      >
-                        <option value="" disabled>เลือกสินค้า...</option>
-                        {products.map(p => (
-                          <option key={p.id} value={p.id}>{p.name} ({p.qtyPerA3} ชิ้น/A3)</option>
-                        ))}
-                      </select>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          className="w-full px-4 py-2 pr-9 border border-slate-200 rounded-lg focus:ring-2 focus:ring-sky-500"
+                          placeholder="พิมพ์ชื่อสินค้าเพื่อค้นหา..."
+                          value={productSearchQuery}
+                          onChange={(e) => {
+                            setProductSearchQuery(e.target.value);
+                            setIsProductDropdownOpen(true);
+                            setEditFormData({ ...editFormData, productId: "" });
+                          }}
+                          onFocus={() => setIsProductDropdownOpen(true)}
+                          onBlur={() => {
+                            setTimeout(() => {
+                              setIsProductDropdownOpen(false);
+                              setEditFormData(prev => {
+                                if (prev.productId) return prev;
+                                setProductSearchQuery(lastConfirmedProductRef.current.label);
+                                return { ...prev, productId: lastConfirmedProductRef.current.id };
+                              });
+                            }, 150);
+                          }}
+                          required
+                        />
+
+                        {editFormData.productId && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditFormData({ ...editFormData, productId: "" });
+                              setProductSearchQuery("");
+                              setIsProductDropdownOpen(false);
+                            }}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 z-10"
+                          >
+                            ✕
+                          </button>
+                        )}
+
+                        {isProductDropdownOpen && (
+                          <div className="absolute z-20 mt-1 w-full max-h-56 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg">
+                            {filteredProducts.length > 0 ? (
+                              filteredProducts.map(p => (
+                                <div
+                                  key={p.id}
+                                  onClick={() => {
+                                    const label = `${p.name} (${p.qtyPerA3} ชิ้น/A3)`;
+                                    setEditFormData({ ...editFormData, productId: p.id });
+                                    setProductSearchQuery(label);
+                                    lastConfirmedProductRef.current = { id: p.id, label };
+                                    setIsProductDropdownOpen(false);
+                                  }}
+                                  className={`px-4 py-2 text-sm cursor-pointer hover:bg-sky-50 ${editFormData.productId === p.id ? 'bg-sky-50 font-semibold text-sky-700' : 'text-slate-700'}`}
+                                >
+                                  {p.name} <span className="text-slate-400">({p.qtyPerA3} ชิ้น/A3)</span>
+                                </div>
+                              ))
+                            ) : (
+                              <div className="px-4 py-2 text-sm text-slate-400">ไม่พบสินค้าที่ค้นหา</div>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
                     <div className="sm:col-span-2">
                       <label className="block text-sm font-medium text-slate-600 mb-1">เป้าหมายที่ต้องการ (ชิ้น)</label>
@@ -1458,8 +1629,26 @@ export default function Dashboard() {
                         min="0"
                       />
                     </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-sm font-medium text-slate-600 mb-1">
+                        เพิ่มจำนวน A3 ดี (ใบ)
+                        <span className="text-xs font-normal text-slate-400 ml-1">
+                          — เว้นว่างถ้าไม่ต้องการเพิ่ม{editCalculationPreview ? ` (ระบบคำนวณอัตโนมัติอยู่แล้ว ${editCalculationPreview.autoGoodA3} ใบ)` : ""}
+                        </span>
+                      </label>
+                      <input
+                        type="number"
+                        className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 text-lg font-bold"
+                        value={editFormData.goodA3}
+                        onChange={(e) => setEditFormData({ ...editFormData, goodA3: e.target.value })}
+                        placeholder="0"
+                        min="0"
+                      />
+                    </div>
+
                   </div>
                 </div>
+
 
                 <div className="bg-red-50/50 p-4 rounded-xl mb-6 border border-red-100">
                   <h4 className="text-sm font-bold text-red-600 mb-3 uppercase tracking-wider">บันทึกของเสีย</h4>
