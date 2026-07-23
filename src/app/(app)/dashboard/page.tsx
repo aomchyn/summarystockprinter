@@ -1067,6 +1067,40 @@ export default function Dashboard() {
               </div>
             ) : (
               <div className="flex flex-col gap-6">
+                {/* === รวมประจำวัน (ด้านบน) === */}
+                <div className="rounded-xl border border-slate-300 bg-gradient-to-r from-slate-50 to-slate-100 shadow-sm overflow-hidden">
+                  {/* แถวสรุปรวม */}
+                  <div className="px-5 py-3.5 flex flex-wrap justify-between items-center gap-2 border-b border-slate-200/70">
+                    <span className="font-bold text-slate-800 text-base flex items-center gap-2">
+                      <span className="text-lg">📊</span> รวมทั้งหมดวันนี้
+                    </span>
+                    <div className="flex flex-wrap gap-4 text-sm">
+                      <span className="text-slate-600">เป้าหมาย <strong>{dailyOrders.reduce((s, o) => s + o.targetQty, 0).toLocaleString()}</strong></span>
+                      <span className="text-sky-600">A3 ใช้ <strong>{dailyOrders.reduce((s, o) => s + o.sheetsNeeded, 0).toLocaleString()} ใบ</strong></span>
+                      <span className="text-red-500">A3 เสีย <strong>{dailyOrders.reduce((s, o) => s + o.wasteA3, 0).toLocaleString()} ใบ</strong></span>
+                      <span className="text-amber-600">ส่วนเกิน <strong>{dailyOrders.reduce((s, o) => s + o.excessQty, 0).toLocaleString()}</strong></span>
+                    </div>
+                  </div>
+                  {/* แยกตามประเภทกระดาษ */}
+                  {dailyOrdersByPaperType.length > 0 && (
+                    <div className="px-5 py-3 flex flex-wrap gap-3">
+                      {dailyOrdersByPaperType.map(([paperType, ptOrders]) => {
+                        const ptStyle = getPaperTypeStyle(paperType);
+                        const ptSheets = ptOrders.reduce((s, o) => s + o.sheetsNeeded, 0);
+                        const ptWaste = ptOrders.reduce((s, o) => s + o.wasteA3, 0);
+                        return (
+                          <div key={paperType} className={`flex items-center gap-2.5 px-3.5 py-2 rounded-lg border ${ptStyle.accent} ${ptStyle.light}`}>
+                            <span className={`w-2.5 h-2.5 rounded-full ${ptStyle.solid} flex-shrink-0`}></span>
+                            <span className={`text-xs font-semibold ${ptStyle.text} truncate max-w-[200px]`}>{paperType}</span>
+                            <span className="text-xs font-bold text-sky-600">{ptSheets.toLocaleString()} ใบ</span>
+                            {ptWaste > 0 && <span className="text-xs font-semibold text-red-500">(เสีย {ptWaste})</span>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
                 {dailyOrdersByPaperType.map(([paperType, orders]) => {
                   const style = getPaperTypeStyle(paperType);
                   const groupTarget = orders.reduce((s, o) => s + o.targetQty, 0);
@@ -1179,16 +1213,6 @@ export default function Dashboard() {
                   );
                 })}
 
-                {/* รวมทั้งหมดทุกประเภทกระดาษ */}
-                <div className="rounded-xl border border-slate-300 bg-slate-100 px-5 py-3 flex flex-wrap justify-between items-center gap-2">
-                  <span className="font-bold text-slate-800">รวมทั้งหมดวันนี้</span>
-                  <div className="flex gap-4 text-sm">
-                    <span className="text-slate-600">เป้าหมาย <strong>{dailyOrders.reduce((s, o) => s + o.targetQty, 0).toLocaleString()}</strong></span>
-                    <span className="text-sky-600">A3 ใช้ <strong>{dailyOrders.reduce((s, o) => s + o.sheetsNeeded, 0).toLocaleString()} ใบ</strong></span>
-                    <span className="text-red-500">A3 เสีย <strong>{dailyOrders.reduce((s, o) => s + o.wasteA3, 0).toLocaleString()} ใบ</strong></span>
-                    <span className="text-amber-600">ส่วนเกิน <strong>{dailyOrders.reduce((s, o) => s + o.excessQty, 0).toLocaleString()}</strong></span>
-                  </div>
-                </div>
               </div>
             )}
           </div>
