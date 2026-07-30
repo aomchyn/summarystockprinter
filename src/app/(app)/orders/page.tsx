@@ -383,9 +383,12 @@ export default function PrintOrders() {
                 />
               </div>
               <div className="form-group flex-1">
-                <label className="form-label">หน่วยงาน</label>
+                <label className="form-label">
+                  หน่วยงาน
+                  <span className="text-red-500 ml-1">*</span>
+                </label>
                 <select
-                  className="input-field cursor-pointer"
+                  className={`input-field cursor-pointer transition-all ${!formData.department ? 'border-red-400 ring-1 ring-red-400 shadow-[0_0_5px_rgba(239,68,68,0.3)]' : ''}`}
                   value={formData.department}
                   onChange={(e) => setFormData({ ...formData, department: e.target.value })}
                   required
@@ -397,10 +400,13 @@ export default function PrintOrders() {
                 </select>
               </div>
               <div className="form-group flex-2">
-                <label className="form-label">เลขลอตการผลิต (Lot Name)</label>
+                <label className="form-label">
+                  เลขลอตการผลิต (Lot Name)
+                  <span className="text-red-500 ml-1">*</span>
+                </label>
                 <input
                   type="text"
-                  className="input-field"
+                  className={`input-field transition-all ${!formData.lotName ? 'border-red-400 ring-1 ring-red-400 shadow-[0_0_5px_rgba(239,68,68,0.3)]' : ''}`}
                   placeholder="เช่น LOT-2026-03-A"
                   value={formData.lotName}
                   onChange={(e) => setFormData({ ...formData, lotName: e.target.value })}
@@ -411,7 +417,10 @@ export default function PrintOrders() {
 
             <div className="form-row">
               <div className="form-group flex-1">
-                <label className="form-label">ประเภทกระดาษ</label>
+                <label className="form-label">
+                  ประเภทกระดาษ
+                  <span className="text-red-500 ml-1">*</span>
+                </label>
                 <select
                   className="input-field cursor-pointer"
                   value={formData.paperType}
@@ -424,10 +433,13 @@ export default function PrintOrders() {
                 </select>
               </div>
               <div className="form-group flex-2" ref={productDropdownRef} style={{ position: 'relative' }}>
-                <label className="form-label">เลือกสินค้า</label>
+                <label className="form-label">
+                  เลือกสินค้า
+                  <span className="text-red-500 ml-1">*</span>
+                </label>
                 <input
                   type="text"
-                  className="input-field"
+                  className={`input-field transition-all ${!formData.productId ? 'border-red-400 ring-1 ring-red-400 shadow-[0_0_5px_rgba(239,68,68,0.3)]' : ''}`}
                   placeholder="-- พิมพ์ค้นหาสินค้า --"
                   value={productSearchQuery}
                   onChange={(e) => {
@@ -472,14 +484,18 @@ export default function PrintOrders() {
                 />
               </div>
               <div className="form-group flex-1">
-                <label className="form-label">จำนวนเป้าหมายที่ต้องการ</label>
+                <label className="form-label">
+                  จำนวนเป้าหมายที่ต้องการ
+                  <span className="text-red-500 ml-1">*</span>
+                </label>
                 <input
                   type="number"
-                  className="input-field"
+                  className={`input-field transition-all ${!formData.targetQty ? 'border-red-400 ring-1 ring-red-400 shadow-[0_0_5px_rgba(239,68,68,0.3)]' : ''}`}
                   placeholder="เช่น 100"
                   value={formData.targetQty}
                   onChange={(e) => setFormData({ ...formData, targetQty: e.target.value })}
                   min="0"
+                  required
                 />
               </div>
             </div>
@@ -503,7 +519,7 @@ export default function PrintOrders() {
                 </label>
                 <input
                   type="text"
-                  className="input-field"
+                  className={`input-field transition-all ${Number(formData.wasteQty) > 0 && !formData.wasteQtyRemark ? 'border-red-400 ring-1 ring-red-400 shadow-[0_0_5px_rgba(239,68,68,0.3)]' : ''}`}
                   placeholder="เช่น สีเพี้ยน, ตัดเบี้ยว"
                   value={formData.wasteQtyRemark}
                   onChange={(e) => setFormData({ ...formData, wasteQtyRemark: e.target.value })}
@@ -531,7 +547,7 @@ export default function PrintOrders() {
                 </label>
                 <input
                   type="text"
-                  className="input-field"
+                  className={`input-field transition-all ${Number(formData.wasteA3) > 0 && !formData.wasteA3Remark ? 'border-red-400 ring-1 ring-red-400 shadow-[0_0_5px_rgba(239,68,68,0.3)]' : ''}`}
                   placeholder="เช่น เครื่องปริ้นกระดาษติด"
                   value={formData.wasteA3Remark}
                   onChange={(e) => setFormData({ ...formData, wasteA3Remark: e.target.value })}
