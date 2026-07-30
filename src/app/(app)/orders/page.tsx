@@ -497,13 +497,17 @@ export default function PrintOrders() {
                 />
               </div>
               <div className="form-group flex-2">
-                <label className="form-label">หมายเหตุ (ของเสียระดับชิ้น)</label>
+                <label className="form-label">
+                  หมายเหตุ (ของเสียระดับชิ้น)
+                  {Number(formData.wasteQty) > 0 && <span className="text-red-500 ml-1">*</span>}
+                </label>
                 <input
                   type="text"
                   className="input-field"
                   placeholder="เช่น สีเพี้ยน, ตัดเบี้ยว"
                   value={formData.wasteQtyRemark}
                   onChange={(e) => setFormData({ ...formData, wasteQtyRemark: e.target.value })}
+                  required={Number(formData.wasteQty) > 0}
                 />
               </div>
             </div>
@@ -521,13 +525,17 @@ export default function PrintOrders() {
                 />
               </div>
               <div className="form-group flex-2">
-                <label className="form-label">หมายเหตุ (ของเสียระดับ A3)</label>
+                <label className="form-label">
+                  หมายเหตุ (ของเสียระดับ A3)
+                  {Number(formData.wasteA3) > 0 && <span className="text-red-500 ml-1">*</span>}
+                </label>
                 <input
                   type="text"
                   className="input-field"
                   placeholder="เช่น เครื่องปริ้นกระดาษติด"
                   value={formData.wasteA3Remark}
                   onChange={(e) => setFormData({ ...formData, wasteA3Remark: e.target.value })}
+                  required={Number(formData.wasteA3) > 0}
                 />
               </div>
             </div>

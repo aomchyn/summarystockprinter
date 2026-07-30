@@ -1688,12 +1688,16 @@ export default function Dashboard() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-600 mb-1">หมายเหตุ (ชิ้นเสีย)</label>
+                      <label className="block text-sm font-medium text-slate-600 mb-1">
+                        หมายเหตุ (ชิ้นเสีย)
+                        {Number(editFormData.wasteQty) > 0 && <span className="text-red-500 ml-1">*</span>}
+                      </label>
                       <input
                         type="text"
                         className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-red-500"
                         value={editFormData.wasteQtyRemark}
                         onChange={(e) => setEditFormData({ ...editFormData, wasteQtyRemark: e.target.value })}
+                        required={Number(editFormData.wasteQty) > 0}
                       />
                     </div>
                     <div>
@@ -1707,12 +1711,16 @@ export default function Dashboard() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-600 mb-1">หมายเหตุ (A3 เสีย)</label>
+                      <label className="block text-sm font-medium text-slate-600 mb-1">
+                        หมายเหตุ (A3 เสีย)
+                        {Number(editFormData.wasteA3) > 0 && <span className="text-red-500 ml-1">*</span>}
+                      </label>
                       <input
                         type="text"
                         className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-red-500"
                         value={editFormData.wasteA3Remark}
                         onChange={(e) => setEditFormData({ ...editFormData, wasteA3Remark: e.target.value })}
+                        required={Number(editFormData.wasteA3) > 0}
                       />
                     </div>
                   </div>
